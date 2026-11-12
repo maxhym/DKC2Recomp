@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added an optional, read-only telemetry bridge for the DKCountry launcher.
+  When `DKCOUNTRY_TELEMETRY` names a file, the desktop, SDL and headless hosts
+  append protocol-1 JSON lines (levels, bananas, coins, animals, Kong
+  knockouts, distance, stomps, state loads). Without the variable nothing is
+  opened. Synthetic unit tests cover decoding, demo silence and rejection of
+  file-load jumps; validation against the private ROM is still pending.
+
 ## 0.0.8 (alpha) - 2026-09-13
 
 - Fixed Player 2 grabbing ropes in simultaneous TEAM mode. Rope reactions now

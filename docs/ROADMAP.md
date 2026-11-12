@@ -493,3 +493,12 @@ Exit criterion: reach and render the title screen with correct audio and input.
 - [x] Verify drop/throw and both players walking/jumping afterward.
 - [x] Verify Diddy/Dixie and imported Donkey/Kiddy with real input replays.
 - [ ] Full-game team-throw terrain/enemy and unusual animal-transition coverage.
+
+## DKCountry launcher integration
+
+- [x] Emit optional, read-only protocol-1 telemetry when
+      `DKCOUNTRY_TELEMETRY` is set, with synthetic unit tests.
+- [ ] Validate the telemetry against a private play session: banana and coin
+      totals, level changes, knockouts versus deaths, pit deaths and demos.
+- [ ] Record stomps outside simultaneous co-op and identify the life counter
+      so deaths no longer depend on the knockout heuristic.

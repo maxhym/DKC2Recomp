@@ -11,6 +11,10 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+# The DKCountry telemetry bridge reports the port version in its hello line.
+set_source_files_properties(runner/dkc2_telemetry.c PROPERTIES
+    COMPILE_DEFINITIONS DKC2_TELEMETRY_BUILD="${PROJECT_VERSION}")
+
 set(DKC2_ROM "" CACHE FILEPATH "Private path to a headerless DKC2 USA v1.0 ROM")
 set(DKC2_COOP_ROPE_STATE "" CACHE FILEPATH "External Topsail Trouble rope regression snapshot")
 set(DKC2_COOP_ROPE_JUNCTION_STATE "" CACHE FILEPATH "External stuck double-rope transition regression snapshot")
@@ -205,6 +209,7 @@ if(DKC2_BUILD_SNESRECOMP)
         ${SNESRECOMP_RUNNER_SOURCES}
         ${DKC2_SNESRECOMP_GEN_SOURCES}
         runner/dkc2_game.c
+        runner/dkc2_telemetry.c
         runner/dkc2_coop.c
         runner/dkc2_video.c
         runner/dkc2_hdma.c
@@ -251,6 +256,8 @@ if(DKC2_BUILD_SNESRECOMP)
             ${SNESRECOMP_RUNNER_SOURCES}
             ${DKC2_SNESRECOMP_GEN_SOURCES}
             runner/dkc2_game.c
+            runner/dkc2_telemetry.c
+        runner/dkc2_telemetry.c
             runner/dkc2_coop.c
             runner/dkc2_video.c
             runner/dkc2_hdma.c
@@ -320,6 +327,7 @@ if(DKC2_BUILD_SNESRECOMP)
         ${SNESRECOMP_RUNNER_SOURCES}
         ${DKC2_SNESRECOMP_GEN_SOURCES}
         runner/dkc2_game.c
+        runner/dkc2_telemetry.c
         runner/dkc2_coop.c
         runner/dkc2_video.c
         runner/dkc2_hdma.c
@@ -1126,6 +1134,16 @@ if(BUILD_TESTING)
     add_test(NAME dkc2_video COMMAND test_dkc2_video)
     set_tests_properties(dkc2_video PROPERTIES
         LABELS "unit;desktop;video;widescreen")
+
+    add_executable(test_dkc2_telemetry
+        tests/test_dkc2_telemetry.c
+        runner/dkc2_telemetry.c)
+    target_include_directories(test_dkc2_telemetry PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/runner)
+    dkc2_enable_project_warnings(test_dkc2_telemetry)
+    add_test(NAME dkc2_telemetry COMMAND test_dkc2_telemetry)
+    set_tests_properties(dkc2_telemetry PROPERTIES
+        LABELS "unit;desktop;telemetry")
 
     add_executable(test_dkc2_coop
         tests/test_dkc2_coop.c

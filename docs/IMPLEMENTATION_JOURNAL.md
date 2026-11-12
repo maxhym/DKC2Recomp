@@ -6371,3 +6371,32 @@ in the release notes. The feature baseline is the complete 86-test pass above.
 GitHub inspection found no newer Mac artifact than v0.0.6; the release carries
 that original archive and checksum, with its older feature coverage explicitly
 labelled. Source-only changes are committed; release archives stay outside Git.
+
+## 2026-11-12 - DKCountry telemetry bridge
+
+Added `runner/dkc2_telemetry.{c,h}` so the DKCountry launcher can build
+session statistics and achievements. The bridge runs after each completed
+frame (`Dkc2RunOneFrame`), reads WRAM only, and writes nothing unless the
+launcher sets `DKCOUNTRY_TELEMETRY`. The hosts also forward the post-frame
+stomp count they already consume for haptics, and a loaded state emits
+`state_load` and resets the comparison baseline.
+
+Fields come from addresses already validated in this repository: level
+`$00D3`, demo status `$05FB`, the BCD banana word `$096D` (co-op banana
+acceptance), Kremkoins `$08CC` and Banana Coins `$08CA` (save-record notes),
+ridden animal `$006E`, both-Kongs bit `$4000` of `$08C2`, leader `$0597` and
+the slot `$0DE2`/`$0E40` state and X words. A Kong entering one of the states
+the co-op layer already treats as losing that Kong (`$05`, `$24`, `$25`,
+`$59`) is a `hit` while the partner is present and a `death` otherwise.
+Banana and coin increases above 10 in one frame are treated as loads, and
+attract demos emit only ticks.
+
+Verification: `test_dkc2_telemetry` (synthetic WRAM and snapshots) passes;
+the full CTest run has 49 of 50 passing, the only failure being the
+pre-existing Linux link of `snesrecomp_interp_bridge` (missing `-lm`), which
+fails identically without this change. `dkc2_game.c` and `sdl_main.c` pass a
+GCC syntax check and `desktop_main.c` a MinGW one; the full hosts were not
+built because the generated sources need the private ROM. Unverified: the
+knockout-to-death mapping and pit deaths (a fall may not pass through those
+states), stomp counts outside simultaneous co-op (the existing counter only
+records them there), and behaviour over a real play session.

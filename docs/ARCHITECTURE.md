@@ -1816,3 +1816,14 @@ Held-Kong ownership resolves from those guest selectors after save/load too.
 The state policy preserves the carrier's pickup wait and restores independent
 control and collision flags when a thrown partner has landed. Classic, solo
 and contest retain the original eligibility and state paths.
+
+## DKCountry telemetry bridge (2026-11-12)
+
+`runner/dkc2_telemetry.c` is a host-side observer with no dependency on the
+recompiler. `Dkc2TelemetryHostFrame` is called at the end of every frame from
+`dkc2_game.c`, so all hosts share it; it lazily opens the file named by
+`DKCOUNTRY_TELEMETRY` and is otherwise a no-op. The pure part
+(`Dkc2TelemetryStep`) turns two consecutive WRAM snapshots into protocol-1
+events through a sink callback, which is what the unit test drives. The
+protocol itself is owned by the DKCountry launcher repository
+(`docs/TELEMETRY_PROTOCOL.md`).

@@ -157,6 +157,16 @@ selection, launcher settings, SRAM, save states, and diagnostics under
 `~/Library/Application Support/Flat2VR/DKC2Recomp`. The private ROM remains at
 its original path and is never copied into the application bundle.
 
+## DKCountry launcher telemetry
+
+The hosts can feed statistics and achievements to the separate DKCountry
+launcher. When the launcher starts the game it sets `DKCOUNTRY_TELEMETRY` to a
+file path; the game then appends one JSON line per event (levels, bananas,
+coins, animals, knockouts, distance, state loads). The bridge only reads
+memory after each frame and never changes the game. Without the variable it
+does nothing. Telemetry has not yet been validated against a full play
+session; see the roadmap.
+
 ## Supported ROM
 
 The launcher and runtime verify the ROM after removing an optional 512-byte

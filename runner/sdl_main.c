@@ -7,6 +7,7 @@
 
 #include "dkc2_game.h"
 #include "dkc2_coop.h"
+#include "dkc2_telemetry.h"
 #include "dkc2_video.h"
 #include "diagnostics.h"
 #include "desktop_filter.h"
@@ -1312,7 +1313,11 @@ static int RunGame(const char *rom_path,
         const uint64_t emulate_start = SDL_GetPerformanceCounter();
 #endif
         (void)RtlRunFrame(controls.controller);
-        PulseHaptics(&host, Dkc2CoopTakeStompEvents(), false);
+        {
+          const uint8_t stomps = Dkc2CoopTakeStompEvents();
+          Dkc2TelemetryHostStomps(stomps);
+          PulseHaptics(&host, stomps, false);
+        }
         if (g_fail || !Dkc2LastLleResult()) {
           fprintf(stderr, "Runtime stopped at frame %llu (resume PC $%06x).\n",
                   host_frame + 1, (unsigned)Dkc2ResumePc());

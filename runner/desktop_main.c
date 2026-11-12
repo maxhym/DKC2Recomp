@@ -11,6 +11,7 @@
 
 #include "dkc2_game.h"
 #include "dkc2_coop.h"
+#include "dkc2_telemetry.h"
 #include "dkc2_video.h"
 #include "diagnostics.h"
 #include "desktop_filter.h"
@@ -1263,7 +1264,11 @@ static int RunDesktop(const char *rom_path,
         perf_start = PerformanceBegin();
         (void)Dkc2CoopTakeStompEvents();
         (void)RtlRunFrame(controls.controller);
-        PulseHaptics(Dkc2CoopTakeStompEvents(), false);
+        {
+          const uint8_t stomps = Dkc2CoopTakeStompEvents();
+          Dkc2TelemetryHostStomps(stomps);
+          PulseHaptics(stomps, false);
+        }
         PerformanceEnd(kDkc2PerfEmulation, perf_start);
         if (g_fail || !Dkc2LastLleResult()) {
           char message[160];
