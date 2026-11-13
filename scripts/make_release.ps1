@@ -90,6 +90,12 @@ foreach ($Asset in $LauncherAssets) {
     Copy-Item -LiteralPath $Source -Destination $Asset.Destination
 }
 
+$HdPack = Join-Path $Build "mods\kong-hd.dkc2hd"
+if (Test-Path -LiteralPath $HdPack -PathType Leaf) {
+    New-Item -ItemType Directory -Path (Join-Path $Stage "mods") -Force | Out-Null
+    Copy-Item -LiteralPath $HdPack -Destination (Join-Path $Stage "mods")
+}
+
 Copy-Item -LiteralPath (Join-Path $Repository "README.md") -Destination $Stage
 Copy-Item -LiteralPath (Join-Path $Repository "CHANGELOG.md") -Destination $Stage
 Copy-Item -LiteralPath (Join-Path $Repository "LICENSE") -Destination $Stage

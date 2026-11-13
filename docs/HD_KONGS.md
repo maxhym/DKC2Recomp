@@ -41,6 +41,8 @@ partner, team-up and handoff, and every animation listed in
    (`generate_snesrecomp.ps1`, then CMake with `-DDKC2_BUILD_SNESRECOMP=ON`).
    The post-build step writes `mods/kong-hd.dkc2hd` beside the executable;
    the hosts load it at start-up and print `HD pack loaded: ...` to stderr.
+   `scripts\create_windows_version.ps1` and `scripts\make_release.ps1` copy
+   that file into the `mods` folder of the packaged version.
 2. Play with Diddy in front. **F8** switches between Mandro and the original
    sprite, so you can compare the placement.
 3. Adjust without rebuilding through environment variables:
