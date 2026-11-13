@@ -79,15 +79,20 @@ or object; the game still draws the barrel), `climb_idle`/`climb_move`/
 `climb_down`, `hang` (horizontal rope), `swim`, `hurt`, `ride`, `victory`,
 `throw`, `carry_front_idle`/`carry_front_walk`/`throw_front` (an object held
 in front of the chest, as Diddy and Dixie do; the overhead carry slots serve
-Donkey Kong in DKC1Recomp) and `stand_to_fours`. For each frame the engine picks, in order: `ride` for the rider on an
+Donkey Kong in DKC1Recomp), `stand_to_fours`, `hang_idle` (hanging still
+from a horizontal rope or a hook) and `climb_wide_idle`/`climb_wide_move`
+(spread between two ropes, seen from behind). Hanging poses are placed on
+the top edge of the native sprite's box and two-rope poses on its middle:
+on a hook the native Kong hangs below its origin, so the origin's feet row
+would draw the pose standing on the hook. For each frame the engine picks, in order: `ride` for the rider on an
 animal; the slot the pack's `animationIds` map assigns to the native animation
 ID; `hurt` in knock-out states `$24/$25/$59`; the carry slots while the leader
 holds an object other than its partner; a fidget; then motion. Missing slots
 fall back (carry walk to carry idle, climb down to climb move to climb idle,
 hang to climb idle, others to idle), and moments with no slot keep the native
 sprite as before. Known rope IDs: single rope `$2F` hang, `$30` up, `$31` down, `$32`
-turn; double rope `$34/$35` transitions, `$36` hang, `$37` up, `$38` down;
-horizontal rope `$39/$3A`. Other Diddy-slot IDs Mandro's pack maps: `$09`
+turn; double rope `$34/$35` transitions, `$36` hang, `$37` up, `$38` down
+(the two-rope slots); horizontal rope `$39` still, `$3A` moving. Other Diddy-slot IDs Mandro's pack maps: `$09`
 roll, `$0A` death and `$29/$2A` hurt (hurt pose), `$0F-$13` and `$15-$18`
 carrying in front (pickup, idle, walk `$11`, turn, drop, jump, air, fall,
 land), `$14` front throw, `$2B` honey wall (rope hang pose), `$42` hook (horizontal hang),

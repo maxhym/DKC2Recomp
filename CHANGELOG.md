@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Mandro hangs below hooks and horizontal ropes (placed on the native
+  sprite's box, with a still `hang_idle` pose) instead of standing on them,
+  and spreads between two ropes on nets (`climb_wide_idle`/`climb_wide_move`,
+  new clips).
 - Mandro holds and throws objects in front of him, like Diddy (new clips and
   slots; the overhead carry stays for Donkey Kong in DKC1Recomp), and goes
   down to all fours or back up through a short clip. Cross-fades last 9

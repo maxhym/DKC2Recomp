@@ -55,8 +55,11 @@ enum {
   kDkc2HdCarryFrontWalk = 21,
   kDkc2HdThrowFront = 22,
   kDkc2HdStandToFours = 23,   /* upright to all fours; played backwards too */
+  kDkc2HdHangIdle = 24,       /* hanging still: horizontal rope, hook */
+  kDkc2HdClimbWideIdle = 25,  /* spread between two ropes, seen from behind */
+  kDkc2HdClimbWideMove = 26,
   kDkc2HdBasicAnimCount = 5,
-  kDkc2HdAnimCount = 24,
+  kDkc2HdAnimCount = 27,
 };
 
 /* Presentation styles, applied to each composited frame at run time. */
@@ -124,6 +127,11 @@ typedef struct Dkc2HdActorInput {
   unsigned state;           /* native sprite state ($2E) */
   bool carrying;            /* holding a barrel or other object */
   bool riding;              /* the rider sprite on an animal */
+  /* Box of the native sprite's pieces, in the units of screen_x/screen_y
+   * (right and bottom exclusive). Hanging poses hang from its top edge and
+   * poses between two ropes sit on its middle, whatever the origin is. */
+  bool has_bounds;
+  int bounds_left, bounds_top, bounds_right, bounds_bottom;
 } Dkc2HdActorInput;
 
 /* The pack has carry poses (the Kong may then stay HD while carrying). */

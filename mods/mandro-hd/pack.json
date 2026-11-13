@@ -3237,6 +3237,221 @@
      2
     ]
    ]
+  },
+  "climb_wide_move": {
+   "loop": true,
+   "frames": [
+    [
+     "climb_wide_move/000.png",
+     2
+    ],
+    [
+     "climb_wide_move/001.png",
+     3
+    ],
+    [
+     "climb_wide_move/002.png",
+     3
+    ],
+    [
+     "climb_wide_move/003.png",
+     2
+    ],
+    [
+     "climb_wide_move/004.png",
+     2
+    ],
+    [
+     "climb_wide_move/005.png",
+     3
+    ],
+    [
+     "climb_wide_move/006.png",
+     3
+    ],
+    [
+     "climb_wide_move/007.png",
+     2
+    ],
+    [
+     "climb_wide_move/008.png",
+     2
+    ],
+    [
+     "climb_wide_move/009.png",
+     3
+    ],
+    [
+     "climb_wide_move/010.png",
+     3
+    ],
+    [
+     "climb_wide_move/011.png",
+     2
+    ],
+    [
+     "climb_wide_move/012.png",
+     2
+    ],
+    [
+     "climb_wide_move/013.png",
+     3
+    ],
+    [
+     "climb_wide_move/014.png",
+     3
+    ],
+    [
+     "climb_wide_move/015.png",
+     2
+    ],
+    [
+     "climb_wide_move/016.png",
+     2
+    ],
+    [
+     "climb_wide_move/017.png",
+     3
+    ],
+    [
+     "climb_wide_move/018.png",
+     3
+    ],
+    [
+     "climb_wide_move/019.png",
+     2
+    ],
+    [
+     "climb_wide_move/020.png",
+     2
+    ],
+    [
+     "climb_wide_move/021.png",
+     3
+    ],
+    [
+     "climb_wide_move/022.png",
+     3
+    ],
+    [
+     "climb_wide_move/023.png",
+     2
+    ],
+    [
+     "climb_wide_move/024.png",
+     2
+    ],
+    [
+     "climb_wide_move/025.png",
+     3
+    ],
+    [
+     "climb_wide_move/026.png",
+     3
+    ],
+    [
+     "climb_wide_move/027.png",
+     2
+    ],
+    [
+     "climb_wide_move/028.png",
+     2
+    ],
+    [
+     "climb_wide_move/029.png",
+     3
+    ],
+    [
+     "climb_wide_move/030.png",
+     3
+    ],
+    [
+     "climb_wide_move/031.png",
+     2
+    ]
+   ]
+  },
+  "climb_wide_idle": {
+   "loop": true,
+   "frames": [
+    [
+     "climb_wide_idle/000.png",
+     6
+    ],
+    [
+     "climb_wide_idle/001.png",
+     6
+    ],
+    [
+     "climb_wide_idle/002.png",
+     6
+    ],
+    [
+     "climb_wide_idle/003.png",
+     6
+    ],
+    [
+     "climb_wide_idle/004.png",
+     6
+    ],
+    [
+     "climb_wide_idle/003.png",
+     6
+    ],
+    [
+     "climb_wide_idle/002.png",
+     6
+    ],
+    [
+     "climb_wide_idle/001.png",
+     6
+    ]
+   ]
+  },
+  "hang_idle": {
+   "loop": true,
+   "frames": [
+    [
+     "hang_idle/000.png",
+     6
+    ],
+    [
+     "hang_idle/001.png",
+     6
+    ],
+    [
+     "hang_idle/002.png",
+     6
+    ],
+    [
+     "hang_idle/003.png",
+     6
+    ],
+    [
+     "hang_idle/004.png",
+     6
+    ],
+    [
+     "hang_idle/005.png",
+     6
+    ],
+    [
+     "hang_idle/004.png",
+     6
+    ],
+    [
+     "hang_idle/003.png",
+     6
+    ],
+    [
+     "hang_idle/002.png",
+     6
+    ],
+    [
+     "hang_idle/001.png",
+     6
+    ]
+   ]
   }
  },
  "animationIds": {
@@ -3251,23 +3466,16 @@
   "climb_idle": [
    43,
    47,
-   50,
-   52,
-   53,
-   54
+   50
   ],
   "climb_move": [
-   48,
-   55
+   48
   ],
   "climb_down": [
-   49,
-   56
+   49
   ],
   "hang": [
-   57,
-   58,
-   66
+   58
   ],
   "swim": [
    67,
@@ -3298,6 +3506,19 @@
   ],
   "throw_front": [
    20
+  ],
+  "climb_wide_idle": [
+   52,
+   53,
+   54
+  ],
+  "climb_wide_move": [
+   55,
+   56
+  ],
+  "hang_idle": [
+   57,
+   66
   ]
  }
 }

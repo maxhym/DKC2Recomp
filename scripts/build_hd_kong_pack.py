@@ -20,7 +20,8 @@ build. Input is a directory holding `pack.json` and RGBA PNG frames:
         "climb_idle": ..., "climb_move": ..., "swim": ..., "hurt": ...,
         "ride": ..., "victory": ..., "throw": ..., "fidget2": ..., "fidget3": ...,
         "hang": ..., "climb_down": ..., "carry_front_idle": ...,
-        "carry_front_walk": ..., "throw_front": ..., "stand_to_fours": ...
+        "carry_front_walk": ..., "throw_front": ..., "stand_to_fours": ...,
+        "hang_idle": ..., "climb_wide_idle": ..., "climb_wide_move": ...
       }
     }
 
@@ -40,10 +41,12 @@ import zlib
 ANIMATIONS = ("idle", "walk", "run", "jump", "fall", "fidget", "roll", "carry_idle",
               "carry_walk", "climb_idle", "climb_move", "swim", "hurt", "ride", "victory",
               "throw", "fidget2", "fidget3", "hang", "climb_down", "carry_front_idle",
-              "carry_front_walk", "throw_front", "stand_to_fours")
+              "carry_front_walk", "throw_front", "stand_to_fours", "hang_idle",
+              "climb_wide_idle", "climb_wide_move")
 BASIC = 5
 LOOPING = ("idle", "walk", "run", "carry_idle", "carry_walk", "climb_idle", "climb_move",
-           "swim", "ride", "hang", "climb_down", "carry_front_idle", "carry_front_walk")
+           "swim", "ride", "hang", "climb_down", "carry_front_idle", "carry_front_walk",
+           "hang_idle", "climb_wide_idle", "climb_wide_move")
 FLAG_FACES_LEFT, FLAG_DIDDY, FLAG_DIXIE = 1, 2, 4
 HEADER_SIZE = 64
 

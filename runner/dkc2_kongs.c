@@ -983,10 +983,10 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
       input.state = Read16(ram + a + 0x2e);
       input.carrying = !rider && held && a == leader && held != partner;
       input.riding = rider;
-      if (rider) {
-        /* The rider's origin is not its seat: sit the HD pose where the
-         * native rider's pieces are, bottom centre to bottom centre. */
-        int left = 0, right = 0, bottom = 0;
+      {
+        /* The box of the native pieces. The rider's origin is not its seat:
+         * the HD pose sits bottom centre to bottom centre on that box. */
+        int left = 0, right = 0, top = 0, bottom = 0;
         bool any = false;
         for (unsigned slot = 0; slot < 128; ++slot) {
           if (!actor->slots[slot]) continue;
@@ -998,10 +998,16 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
           const int py = actor->y + ((raw_y - actor->y + 128) & 255) - 128;
           if (!any || px < left) left = px;
           if (!any || px + size > right) right = px + size;
+          if (!any || py < top) top = py;
           if (!any || py + size > bottom) bottom = py + size;
           any = true;
         }
-        if (any) {
+        input.has_bounds = any;
+        input.bounds_left = left;
+        input.bounds_top = top;
+        input.bounds_right = right;
+        input.bounds_bottom = bottom;
+        if (any && rider) {
           input.screen_x = (left + right) / 2;
           input.screen_y = bottom + 1;
         }

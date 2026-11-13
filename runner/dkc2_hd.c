@@ -16,6 +16,10 @@ enum {
   kFadeTicks = 9,     /* cross-fade between two poses, about 150 ms */
   kMaxFrameSide = 1024,
   kMaskRows = 240,
+  /* Placement: the origin's feet row, or the native sprite's box. */
+  kAlignFeet = 0,
+  kAlignTop = 1,    /* hang from the top edge of the box */
+  kAlignCenter = 2, /* middle on the middle of the box */
 };
 
 typedef struct HdFrame {
@@ -66,6 +70,7 @@ typedef struct HdActor {
   const HdFrame *fade_frame; /* previous pose while cross-fading, or NULL */
   float fade;                /* weight of `frame`, 0..1 */
   bool flip;
+  int align;                 /* kAlign*: what the pose is placed on */
   unsigned level;
   int rx, ry, rw, rh;        /* drawn rectangle in HD pixels, origin-relative */
   float left, top, width, height;
@@ -374,6 +379,9 @@ static int Resolve(int animation) {
     case kDkc2HdCarryFrontWalk: return Resolve(kDkc2HdCarryFrontIdle);
     case kDkc2HdCarryFrontIdle: return Resolve(kDkc2HdCarryIdle);
     case kDkc2HdThrowFront: return Resolve(kDkc2HdThrow);
+    case kDkc2HdHangIdle: return Resolve(kDkc2HdHang);
+    case kDkc2HdClimbWideMove: return Resolve(kDkc2HdClimbWideIdle);
+    case kDkc2HdClimbWideIdle: return Resolve(kDkc2HdClimbIdle);
     case kDkc2HdFall: return s_pack.animations[kDkc2HdJump].count ? kDkc2HdJump : kDkc2HdIdle;
     default: return kDkc2HdIdle;
   }
@@ -523,6 +531,10 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
   if (resolved == kDkc2HdJump && animation == kDkc2HdFall)
     elapsed = UINT32_MAX / 2; /* no fall clip: hold the jump's last pose */
   actor->frame = FrameAt(resolved, elapsed);
+  actor->align = !input->has_bounds ? kAlignFeet :
+      resolved == kDkc2HdHang || resolved == kDkc2HdHangIdle ? kAlignTop :
+      resolved == kDkc2HdClimbWideIdle || resolved == kDkc2HdClimbWideMove ? kAlignCenter :
+      kAlignFeet;
   if (show->turn) {
     const uint32_t length = Duration(kDkc2HdStandToFours);
     const uint32_t done = s_tick - show->turn_start;
@@ -592,13 +604,24 @@ static void Place(HdActor *actor, const Ppu *ppu) {
   const bool art_left = (s_pack.flags & kDkc2HdFlagFacesLeft) != 0;
   const bool native_flip = (actor->input.properties & 0x4000) != 0;
   actor->flip = native_flip != art_left;
-  const float origin_x = (float)(actor->input.screen_x - ppu->wsPresentationXBias +
-                                 (int)ppu->extraLeftCur) + s_pack.offset_x;
-  const float origin_y = (float)(actor->input.screen_y - 1) + s_pack.offset_y;
+  float origin_x = (float)(actor->input.screen_x - ppu->wsPresentationXBias +
+                           (int)ppu->extraLeftCur) + s_pack.offset_x;
+  float origin_y = (float)(actor->input.screen_y - 1) + s_pack.offset_y;
   /* The drawn rectangle covers the pose and, while cross-fading, the one
    * it replaces; both are positioned by their own anchor. */
   int x0, y0, x1, y1;
   FrameRect(f, actor->flip, &x0, &y0, &x1, &y1);
+  if (actor->align != kAlignFeet) {
+    /* Hooks and ropes: the native sprite hangs below or around its origin,
+     * so the pose goes where its pieces are. */
+    const Dkc2HdActorInput *in = &actor->input;
+    origin_x = (float)(in->bounds_left + in->bounds_right) * 0.5f -
+               (float)ppu->wsPresentationXBias + (float)ppu->extraLeftCur + s_pack.offset_x;
+    origin_y = actor->align == kAlignTop
+        ? (float)in->bounds_top - (float)y0 / scale
+        : (float)(in->bounds_top + in->bounds_bottom) * 0.5f - (float)(y0 + y1) * 0.5f / scale;
+    origin_y += s_pack.offset_y;
+  }
   if (actor->fade_frame) {
     int px0, py0, px1, py1;
     FrameRect(actor->fade_frame, actor->flip, &px0, &py0, &px1, &py1);

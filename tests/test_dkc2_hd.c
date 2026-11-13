@@ -354,7 +354,8 @@ static void TestExtendedSlots(void) {
 }
 
 /* Three opaque 8x8 frames (red, blue, green): idle = red, walk = blue,
- * stand_to_fours = green for 6 ticks, once. */
+ * stand_to_fours = green for 6 ticks, once; hang and climb_wide_idle = blue,
+ * mapped from native animations $39 and $36. */
 static size_t BuildPackTurn(uint8_t *out) {
   const unsigned frames = 3, anims = kDkc2HdAnimCount, steps = 3;
   memset(out, 0, 4096);
@@ -364,9 +365,11 @@ static size_t BuildPackTurn(uint8_t *out) {
   Put16(out + 16, frames);
   Put16(out + 18, steps);
   Put16(out + 22, anims);
+  Put16(out + 24, 2); /* map entries */
   const unsigned slot_step[][3] = {{kDkc2HdIdle, 0, 1}, {kDkc2HdWalk, 1, 1},
-                                   {kDkc2HdStandToFours, 2, 0}};
-  for (unsigned i = 0; i < 3; ++i) {
+                                   {kDkc2HdStandToFours, 2, 0}, {kDkc2HdHang, 1, 1},
+                                   {kDkc2HdClimbWideIdle, 1, 1}};
+  for (unsigned i = 0; i < 5; ++i) {
     uint8_t *r = out + 32 + slot_step[i][0] * 8;
     Put16(r, slot_step[i][1]);
     Put16(r + 2, 1);
@@ -377,6 +380,8 @@ static size_t BuildPackTurn(uint8_t *out) {
     Put16(out + c, i);
     Put16(out + c + 2, i == 2 ? 6 : 4);
   }
+  Put16(out + c, 0x39); Put16(out + c + 2, kDkc2HdHang); c += 4;
+  Put16(out + c, 0x36); Put16(out + c + 2, kDkc2HdClimbWideIdle); c += 4;
   const size_t table = c;
   size_t pixels = table + frames * 12;
   for (unsigned f = 0; f < frames; ++f) {
@@ -430,6 +435,38 @@ static void TestStandToFours(void) {
   CHECK(Dkc2HdActorAnimation(0) == kDkc2HdIdle);
   CHECK(green_ticks >= 4);
   CHECK(s && s->rgba[0] == 255 && s->rgba[1] == 0 && s->rgba[2] == 0);
+  free(ppu);
+}
+
+/* Hanging poses hang from the top of the native sprite's box and poses
+ * between two ropes sit on its middle, wherever the origin is. */
+static void TestBoxPlacement(void) {
+  static uint8_t pack[4096];
+  CHECK(Dkc2HdLoadBytes(pack, BuildPackTurn(pack)));
+  Ppu *ppu = NewPpu();
+  for (unsigned i = 0; i < kPpuBufWidth; ++i) ppu->bgBuffers[0].data[i] = 0x7100;
+  uint8_t slots[128] = {0};
+  Dkc2HdActorInput in = Actor(slots, 3u << 12);
+  in.has_bounds = true;
+  in.bounds_left = 110; in.bounds_right = 130;
+  in.bounds_top = 50; in.bounds_bottom = 80;
+  Dkc2HdBeginFrame(698);
+  Dkc2HdBeginFrame(699);
+  /* A ground pose ignores the box. */
+  const Dkc2OverlaySprite *s = Render(ppu, &in, 700);
+  CHECK(s && s->x == 99.0f && s->y == 98.0f);
+  in.animation = 0x39;
+  for (uint32_t t = 701; t < 715; ++t) s = Render(ppu, &in, t);
+  CHECK(Dkc2HdActorAnimation(0) == kDkc2HdHang);
+  CHECK(s && s->x == 119.0f && s->y == 50.0f);     /* top edge, centred */
+  in.animation = 0x36;
+  for (uint32_t t = 715; t < 730; ++t) s = Render(ppu, &in, t);
+  CHECK(Dkc2HdActorAnimation(0) == kDkc2HdClimbWideIdle);
+  CHECK(s && s->x == 119.0f && s->y == 64.0f);     /* middle on middle */
+  /* Without a box the origin is used, as before. */
+  in.has_bounds = false;
+  for (uint32_t t = 730; t < 745; ++t) s = Render(ppu, &in, t);
+  CHECK(s && s->x == 99.0f && s->y == 98.0f);
   free(ppu);
 }
 
@@ -507,6 +544,7 @@ int main(int argc, char **argv) {
   TestStyles();
   TestCrossFade();
   TestStandToFours();
+  TestBoxPlacement();
   TestExtendedSlots();
   TestInactive();
   TestRealPack(argc > 1 ? argv[1] : NULL);
