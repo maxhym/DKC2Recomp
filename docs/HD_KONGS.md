@@ -77,10 +77,14 @@ fall back (carry walk to carry idle, climb down to climb move to climb idle,
 hang to climb idle, others to idle), and moments with no slot keep the native
 sprite as before. Known rope IDs: single rope `$2F` hang, `$30` up, `$31` down, `$32`
 turn; double rope `$34/$35` transitions, `$36` hang, `$37` up, `$38` down;
-horizontal rope `$39/$3A`; Mandro's pack maps all of them. `DKC2_HD_TRACE=1`
-prints every native animation ID and state change, to complete the map for
-rolls, swimming, celebrations and throws: Mandro has those clips, but they
-play only once their IDs are in `animationIds`.
+horizontal rope `$39/$3A`. Other Diddy-slot IDs Mandro's pack maps: `$09`
+roll, `$0A` death and `$29/$2A` hurt (hurt pose), `$0F-$13` and `$15-$18`
+carrying (pickup, idle, walk `$11`, turn, drop, jump, air, fall, land), `$14`
+carry throw, `$2B` honey wall (rope hang pose), `$42` hook (horizontal hang),
+`$43/$44` and `$A3` swimming, `$45` celebration, `$46` level-end run and `$4E`
+skull cart (ride pose). Dixie's IDs are the same plus `$A3`; the engine
+subtracts that offset. `DKC2_HD_TRACE=1` prints every native animation ID and
+state change, to check or extend the map.
 
 ## Styles
 

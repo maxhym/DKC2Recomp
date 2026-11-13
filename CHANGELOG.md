@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Mandro's roll, swim, celebration, carry throw, death, hook and skull-cart
+  moments now use his own poses: the pack maps their native animation IDs.
 - Mandro's pack now carries a lively idle, three fidgets that take turns, a
   roll, carry poses, rope hang/climb up/climb down, horizontal rope, swim,
   hit, riding, victory and throw (674 frames, 48 MB). The engine adds
