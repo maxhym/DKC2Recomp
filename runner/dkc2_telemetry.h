@@ -95,8 +95,10 @@ void Dkc2BootAudioGameplay(Dkc2BootAudio *b);
 bool Dkc2BootAudioDone(const Dkc2BootAudio *b);
 
 /* Host hook: call with each block of game audio, before any music pack is
- * mixed in. Inert unless the launcher asked for a capture. */
-void Dkc2TelemetryHostAudio(const int16_t *samples, int frames, int channels,
+ * mixed in. Inert unless the launcher asked for a capture; during a capture
+ * run the block is silenced after it is recorded, because that run is
+ * hidden. */
+void Dkc2TelemetryHostAudio(int16_t *samples, int frames, int channels,
                             int rate);
 
 #ifdef __cplusplus
