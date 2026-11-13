@@ -13,6 +13,7 @@ enum {
   kMaxNativeOnly = 512,
   kMaxMap = 512,
   kFidgetDelay = 300, /* ticks standing still before a fidget */
+  kFadeTicks = 5,     /* cross-fade between two poses, about 80 ms */
   kMaxFrameSide = 1024,
   kMaskRows = 240,
 };
@@ -47,6 +48,9 @@ typedef struct HdShow {
   uint32_t since, idle_since;
   unsigned native;
   unsigned fidget_turn; /* next fidget slot to try */
+  /* Cross-fade: the frame shown last tick, and the one being faded out. */
+  const struct HdFrame *last_frame, *fade_from;
+  uint32_t fade_start;
   bool valid;
 } HdShow;
 static HdShow s_show[2];
@@ -56,8 +60,11 @@ typedef struct HdActor {
   Dkc2HdActorInput input;
   uint8_t slots[128];
   const HdFrame *frame;
+  const HdFrame *fade_frame; /* previous pose while cross-fading, or NULL */
+  float fade;                /* weight of `frame`, 0..1 */
   bool flip;
   unsigned level;
+  int rx, ry, rw, rh;        /* drawn rectangle in HD pixels, origin-relative */
   float left, top, width, height;
 } HdActor;
 
@@ -98,6 +105,7 @@ static void FreePack(HdPack *pack) {
 void Dkc2HdUnload(void) {
   FreePack(&s_pack);
   memset(s_actors, 0, sizeof s_actors);
+  memset(s_show, 0, sizeof s_show);
   memset(s_motion, 0, sizeof s_motion);
   memset(s_owned, 0, sizeof s_owned);
   s_sprite_count = 0;
@@ -339,7 +347,9 @@ int Dkc2HdClassify(Dkc2HdMotion *m, int world_x, int world_y,
   int animation;
   if (!grounded) animation = rising ? kDkc2HdJump : kDkc2HdFall;
   else if (speed < 6) animation = kDkc2HdIdle;
-  else if (speed < 40) animation = kDkc2HdWalk;
+  /* A run only drops back to a walk well below the speed that started it,
+   * so a speed hovering at the threshold does not flicker between both. */
+  else if (speed < (m->animation == kDkc2HdRun ? 30 : 40)) animation = kDkc2HdWalk;
   else animation = kDkc2HdRun;
   if (animation != m->animation) m->started = tick;
   m->animation = animation;
@@ -433,6 +443,7 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
     show->valid = true;
     show->animation = -1;
     show->idle_since = s_tick;
+    show->last_frame = show->fade_from = NULL;
   }
   /* A finished fidget restarts the wait before the next one. */
   if (IsFidget(show->animation) && s_tick - show->since >= Duration(show->animation))
@@ -458,7 +469,21 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
     /* Motion classes keep the classifier's clock; other slots start now. */
     const bool both_motion = animation < kDkc2HdBasicAnimCount &&
                              show->animation >= 0 && show->animation < kDkc2HdBasicAnimCount;
-    show->since = both_motion ? s_motion[who].started : s_tick;
+    const bool strides = (animation == kDkc2HdWalk || animation == kDkc2HdRun) &&
+                         (show->animation == kDkc2HdWalk || show->animation == kDkc2HdRun);
+    const uint32_t from = strides ? Duration(Resolve(show->animation)) : 0;
+    const uint32_t to = strides ? Duration(Resolve(animation)) : 0;
+    if (from && to && Resolve(show->animation) != Resolve(animation)) {
+      /* Walk and run keep their place in the stride across the change. */
+      const uint32_t phase = (s_tick - show->since) % from;
+      show->since = s_tick - (uint32_t)((uint64_t)phase * to / from);
+    } else {
+      show->since = both_motion ? s_motion[who].started : s_tick;
+    }
+    if (previous >= 0 && show->last_frame) {
+      show->fade_from = show->last_frame;
+      show->fade_start = s_tick;
+    }
     show->animation = animation;
   }
   show->native = input->animation;
@@ -469,6 +494,18 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
   if (resolved == kDkc2HdJump && animation == kDkc2HdFall)
     elapsed = UINT32_MAX / 2; /* no fall clip: hold the jump's last pose */
   actor->frame = FrameAt(resolved, elapsed);
+  actor->fade_frame = NULL;
+  actor->fade = 1.0f;
+  if (show->fade_from) {
+    const uint32_t age = s_tick - show->fade_start;
+    if (age < kFadeTicks && show->fade_from != actor->frame) {
+      actor->fade_frame = show->fade_from;
+      actor->fade = (float)(age + 1) / (float)(kFadeTicks + 1);
+    } else {
+      show->fade_from = NULL;
+    }
+  }
+  show->last_frame = actor->frame;
   const unsigned priority = SPRITE_PRIO_TO_PRIO((input->properties >> 12) & 3,
                                                 (input->properties & 0x800) == 0);
   actor->level = (priority << 8) >> 12;
@@ -487,6 +524,22 @@ bool Dkc2HdOwnsSlot(unsigned slot) {
   return slot < 128 && s_owned[slot] != 0;
 }
 
+/* A frame's extent in HD pixels relative to the actor's origin. */
+static void FrameRect(const HdFrame *f, bool flip, int *x0, int *y0, int *x1, int *y1) {
+  *x0 = flip ? -((int)f->width - f->anchor_x) : -f->anchor_x;
+  *x1 = *x0 + (int)f->width;
+  *y0 = -f->anchor_y;
+  *y1 = *y0 + (int)f->height;
+}
+
+/* The frame's pixel at an origin-relative HD position, or NULL outside it. */
+static const uint8_t *FramePixel(const HdFrame *f, bool flip, int x, int y) {
+  const int su = flip ? f->anchor_x - 1 - x : x + f->anchor_x;
+  const int sv = y + f->anchor_y;
+  if (su < 0 || sv < 0 || su >= (int)f->width || sv >= (int)f->height) return NULL;
+  return f->rgba + ((size_t)sv * f->width + (size_t)su) * 4;
+}
+
 static void Place(HdActor *actor, const Ppu *ppu) {
   if (actor->placed || !actor->frame) return;
   const HdFrame *f = actor->frame;
@@ -497,11 +550,26 @@ static void Place(HdActor *actor, const Ppu *ppu) {
   const float origin_x = (float)(actor->input.screen_x - ppu->wsPresentationXBias +
                                  (int)ppu->extraLeftCur) + s_pack.offset_x;
   const float origin_y = (float)(actor->input.screen_y - 1) + s_pack.offset_y;
-  actor->width = (float)f->width / scale;
-  actor->height = (float)f->height / scale;
-  actor->left = actor->flip ? origin_x - (float)(f->width - f->anchor_x) / scale
-                            : origin_x - (float)f->anchor_x / scale;
-  actor->top = origin_y - (float)f->anchor_y / scale;
+  /* The drawn rectangle covers the pose and, while cross-fading, the one
+   * it replaces; both are positioned by their own anchor. */
+  int x0, y0, x1, y1;
+  FrameRect(f, actor->flip, &x0, &y0, &x1, &y1);
+  if (actor->fade_frame) {
+    int px0, py0, px1, py1;
+    FrameRect(actor->fade_frame, actor->flip, &px0, &py0, &px1, &py1);
+    if (px0 < x0) x0 = px0;
+    if (py0 < y0) y0 = py0;
+    if (px1 > x1) x1 = px1;
+    if (py1 > y1) y1 = py1;
+  }
+  actor->rx = x0;
+  actor->ry = y0;
+  actor->rw = x1 - x0;
+  actor->rh = y1 - y0;
+  actor->width = (float)actor->rw / scale;
+  actor->height = (float)actor->rh / scale;
+  actor->left = origin_x + (float)x0 / scale;
+  actor->top = origin_y + (float)y0 / scale;
   s_out_width = kPpuXPixels + (int)ppu->extraLeftCur + (int)ppu->extraRightCur;
   if (s_out_width > kPpuBufWidth) s_out_width = kPpuBufWidth;
   actor->placed = true;
@@ -687,7 +755,9 @@ void Dkc2HdFinishFrame(const Ppu *ppu) {
     if (!actor->active || !actor->frame) continue;
     Place(actor, ppu);
     const HdFrame *f = actor->frame;
-    const size_t needed = (size_t)f->width * f->height * 4;
+    const HdFrame *g = actor->fade_frame;
+    const unsigned w = (unsigned)actor->rw, h = (unsigned)actor->rh;
+    const size_t needed = (size_t)w * h * 4;
     if (s_out_capacity[a] < needed) {
       uint8_t *grown = (uint8_t *)realloc(s_out[a], needed);
       if (!grown) continue;
@@ -695,27 +765,44 @@ void Dkc2HdFinishFrame(const Ppu *ppu) {
       s_out_capacity[a] = needed;
     }
     const float inv = 1.0f / EffectiveScale();
-    for (unsigned v = 0; v < f->height; ++v) {
+    const float keep = actor->fade, drop = 1.0f - actor->fade;
+    for (unsigned v = 0; v < h; ++v) {
       const int ny = (int)floorf(actor->top + ((float)v + 0.5f) * inv);
       const bool row_ok = ny >= 0 && ny < 224;
-      uint8_t *dst = s_out[a] + (size_t)v * f->width * 4;
-      for (unsigned u = 0; u < f->width; ++u, dst += 4) {
-        const unsigned su = actor->flip ? f->width - 1 - u : u;
-        const uint8_t *src = f->rgba + ((size_t)v * f->width + su) * 4;
+      uint8_t *dst = s_out[a] + (size_t)v * w * 4;
+      for (unsigned u = 0; u < w; ++u, dst += 4) {
+        const int x = actor->rx + (int)u, y = actor->ry + (int)v;
+        const uint8_t *src = FramePixel(f, actor->flip, x, y);
         const int nx = (int)floorf(actor->left + ((float)u + 0.5f) * inv);
-        const bool visible = src[3] && row_ok && nx >= 0 && nx < s_out_width &&
+        const bool visible = row_ok && nx >= 0 && nx < s_out_width &&
                              !(s_mask[ny][nx] & (1u << a));
-        dst[0] = src[0];
-        dst[1] = src[1];
-        dst[2] = src[2];
-        dst[3] = visible ? src[3] : 0;
+        if (!g) {
+          dst[0] = src ? src[0] : 0;
+          dst[1] = src ? src[1] : 0;
+          dst[2] = src ? src[2] : 0;
+          dst[3] = src && visible ? src[3] : 0;
+          continue;
+        }
+        /* Cross-fade in premultiplied space so edges do not darken. */
+        const uint8_t *old = FramePixel(g, actor->flip, x, y);
+        const float a_new = src ? (float)src[3] * keep : 0.0f;
+        const float a_old = old ? (float)old[3] * drop : 0.0f;
+        const float alpha = a_new + a_old;
+        if (alpha < 0.5f || !visible) {
+          dst[0] = dst[1] = dst[2] = dst[3] = 0;
+          continue;
+        }
+        for (unsigned c = 0; c < 3; ++c)
+          dst[c] = (uint8_t)(((src ? (float)src[c] * a_new : 0.0f) +
+                              (old ? (float)old[c] * a_old : 0.0f)) / alpha + 0.5f);
+        dst[3] = (uint8_t)(alpha + 0.5f);
       }
     }
-    ApplyStyle(s_out[a], f->width, f->height, actor->top, EffectiveScale());
+    ApplyStyle(s_out[a], w, h, actor->top, EffectiveScale());
     Dkc2OverlaySprite *sprite = &s_sprites[s_sprite_count++];
     sprite->rgba = s_out[a];
-    sprite->width = f->width;
-    sprite->height = f->height;
+    sprite->width = w;
+    sprite->height = h;
     sprite->x = actor->left;
     sprite->y = actor->top;
     sprite->w = actor->width;

@@ -983,6 +983,29 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
       input.state = Read16(ram + a + 0x2e);
       input.carrying = !rider && held && a == leader && held != partner;
       input.riding = rider;
+      if (rider) {
+        /* The rider's origin is not its seat: sit the HD pose where the
+         * native rider's pieces are, bottom centre to bottom centre. */
+        int left = 0, right = 0, bottom = 0;
+        bool any = false;
+        for (unsigned slot = 0; slot < 128; ++slot) {
+          if (!actor->slots[slot]) continue;
+          const unsigned high = (ppu->highOam[slot / 4] >> (slot % 4 * 2)) & 3;
+          const int size = (high & 2) ? 16 : 8;
+          const int raw_x = (ppu->oam[slot * 2] & 255) | ((high & 1) << 8);
+          const int raw_y = ppu->oam[slot * 2] >> 8;
+          const int px = actor->x + ((raw_x - actor->x + 256) & 511) - 256;
+          const int py = actor->y + ((raw_y - actor->y + 128) & 255) - 128;
+          if (!any || px < left) left = px;
+          if (!any || px + size > right) right = px + size;
+          if (!any || py + size > bottom) bottom = py + size;
+          any = true;
+        }
+        if (any) {
+          input.screen_x = (left + right) / 2;
+          input.screen_y = bottom + 1;
+        }
+      }
       Dkc2HdSetActor(who, &input);
       memset(actor, 0, sizeof *actor);
       continue;

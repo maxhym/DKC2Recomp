@@ -20,7 +20,10 @@ textured quad in their place.
    hidden from the PPU.
 2. A classifier picks idle, walk, run, jump or fall from the motion averaged
    over four frames. Run falls back to walk at 8/5 speed; fall without its own
-   clip holds the last jump frame.
+   clip holds the last jump frame. A run only drops back to a walk well below
+   the speed that started it, and walk and run keep their place in the stride
+   when one replaces the other. Every change of pose cross-fades from the last
+   frame shown over 5 ticks.
 3. After each main-screen line the PPU hook `Dkc2HdObserveMainLine` marks the
    pixels where a layer of higher priority than the Kong's OBJ priority
    (`priority * 4 + 2`) is drawn: foreground leaves, pipes, water fronts.
@@ -156,7 +159,9 @@ clips where the character travels), `air` (centre vertically too),
 `trim=A-B` (clip frames A to B-1), `stand=N` (rescale a wider shot from the
 standing height of its first N frames), `open=N` (remove keyed structures
 thinner than N pixels, such as a green pole the character holds), `every=N`
-(keep one frame in N, shown N times longer).
+(keep one frame in N, shown N times longer), `main` (drop detached dust or
+debris), `stride` (start a loop on its widest frame, so walk and run share a
+phase).
 
 The pack builder trims the transparent border of every frame and moves the
 anchor with it, so placement does not change and the pack is about a third of
@@ -164,8 +169,10 @@ the size of the uncropped frames.
 
 ## Limits
 
-- Not yet checked in game: anchor offset, facing, the grounded/rising bits,
-  the rider's placement on each animal, the rope poses' vertical placement,
+- The rider's origin is not its seat, so the ride pose is placed on the
+  native rider's own OAM pieces: bottom centre to bottom centre.
+- Not yet checked in game: the rider's placement after that change, the rope
+  poses' vertical placement,
   and which animation IDs need to stay native (cartwheel and hair-spin are
   expected to need entries in `nativeOnlyAnimations`).
 - Palette effects such as water tint, colour math and mosaic do not reach the

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Mandro walks on his knuckles and gallops on all fours (new clips). Pose
+  changes cross-fade over 5 ticks, walk and run keep their stride phase, and
+  a run no longer flickers back to a walk at the threshold speed.
+- The HD rider sits where the native rider's sprite is drawn instead of at
+  the animal's origin, which put Mandro inside Rambi.
 - Mandro's roll, swim, celebration, carry throw, death, hook and skull-cart
   moments now use his own poses: the pack maps their native animation IDs.
 - Mandro's pack now carries a lively idle, three fidgets that take turns, a
