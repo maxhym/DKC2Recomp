@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The HD pack builder trims transparent frame borders (Mandro's pack drops
+  from 42 MB to 14 MB, same placement), and the frame extractor takes extra
+  slots with `--clip NAME=PATH[@options]` and `--merge`.
 - HD Kong packs can carry more animations (pack format DKC2HD02): fidget,
   roll, carry, climb, swim, hurt, ride, victory and throw, selected from a
   map of native animation IDs, the knock-out states or the held object.

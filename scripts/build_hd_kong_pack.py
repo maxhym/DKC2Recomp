@@ -102,6 +102,26 @@ def read_png_rgba(path):
     return width, height, bytes(out)
 
 
+def crop_transparent(width, height, rgba):
+    """Trim fully transparent borders; returns (x0, y0, width, height, rgba).
+    The anchor moves with the crop, so placement is unchanged."""
+    rows = [y for y in range(height)
+            if any(rgba[(y * width + x) * 4 + 3] for x in range(width))]
+    if not rows:
+        return 0, 0, 1, 1, bytes(4)
+    y0, y1 = rows[0], rows[-1] + 1
+    x0, x1 = width, 0
+    for y in range(y0, y1):
+        alpha = rgba[(y * width) * 4 + 3:((y + 1) * width) * 4:4]
+        xs = [x for x, a in enumerate(alpha) if a]
+        if xs:
+            x0, x1 = min(x0, xs[0]), max(x1, xs[-1] + 1)
+    out = bytearray()
+    for y in range(y0, y1):
+        out += rgba[(y * width + x0) * 4:(y * width + x1) * 4]
+    return x0, y0, x1 - x0, y1 - y0, bytes(out)
+
+
 def build(directory):
     directory = Path(directory)
     spec = json.loads((directory / "pack.json").read_text(encoding="utf-8"))
@@ -134,8 +154,9 @@ def build(directory):
             if file not in frame_index:
                 w, h, rgba = read_png_rgba(directory / file)
                 ax, ay = entry[2:4] if len(entry) >= 4 else (anchor or [w // 2, h - 1])
+                x0, y0, w, h, rgba = crop_transparent(w, h, rgba)
                 frame_index[file] = len(frames)
-                frames.append((w, h, int(ax), int(ay), rgba))
+                frames.append((w, h, int(ax) - x0, int(ay) - y0, rgba))
             steps.append((frame_index[file], duration))
         table.append((first, len(steps) - first, 1 if anim.get("loop", name in LOOPING) else 0))
     native_only = [int(v) for v in spec.get("nativeOnlyAnimations", [])]

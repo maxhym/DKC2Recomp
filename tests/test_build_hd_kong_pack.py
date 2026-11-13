@@ -71,6 +71,34 @@ class BuildHdKongPackTests(unittest.TestCase):
             self.assertEqual(data[offset:offset + 4], bytes((0, 0, 255, 255)))
             self.assertEqual(len(data), offset + 64)
 
+    def test_transparent_borders_are_cropped_and_anchor_follows(self):
+        # 5x4 frame, one opaque pixel at (3, 1) and one at (1, 2).
+        rgba = bytearray(5 * 4 * 4)
+        for x, y in ((3, 1), (1, 2)):
+            rgba[(y * 5 + x) * 4:(y * 5 + x) * 4 + 4] = bytes((9, 8, 7, 255))
+        x0, y0, w, h, out = pack.crop_transparent(5, 4, bytes(rgba))
+        self.assertEqual((x0, y0, w, h), (1, 1, 3, 2))
+        self.assertEqual(out[(0 * 3 + 2) * 4:(0 * 3 + 2) * 4 + 4], bytes((9, 8, 7, 255)))
+        self.assertEqual(out[(1 * 3 + 0) * 4:(1 * 3 + 0) * 4 + 4], bytes((9, 8, 7, 255)))
+        self.assertEqual(pack.crop_transparent(2, 2, bytes(16))[2:4], (1, 1))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "idle").mkdir()
+            path = root / "idle/0.png"
+            rows = b"".join(b"\x00" + bytes(rgba[y * 20:(y + 1) * 20]) for y in range(4))
+
+            def chunk(kind, body):
+                return struct.pack(">I", len(body)) + kind + body + \
+                    struct.pack(">I", zlib.crc32(kind + body))
+            path.write_bytes(b"\x89PNG\r\n\x1a\n" +
+                             chunk(b"IHDR", struct.pack(">IIBBBBB", 5, 4, 8, 6, 0, 0, 0)) +
+                             chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+            (root / "pack.json").write_text(json.dumps({
+                "anchor": [2, 3], "animations": {"idle": {"frames": [["idle/0.png", 1]]}}}))
+            data, _, _ = pack.build(root)
+            table = 64 + 4
+            self.assertEqual(struct.unpack_from("<HHhh", data, table), (3, 2, 1, 2))
+
     def test_extended_slots_and_map_use_v2(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

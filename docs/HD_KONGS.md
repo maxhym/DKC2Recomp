@@ -134,6 +134,24 @@ the jump at its apex into jump and fall, and scales everything so the idle
 body is 192 HD pixels tall on a 256 canvas with the feet at (128, 248). Point
 `DKC2_HD_KONG_PACK_DIR` at the new folder when configuring CMake.
 
+Extra slots come from `--clip NAME=PATH[@OPTIONS]`, and `--merge` adds them to
+an existing `pack.json` without touching the other slots or the tuning:
+
+```
+python scripts/extract_hd_kong_frames.py --out mods/my-kong --idle idle.mp4 --merge \
+    --clip fidget=chest.mp4 --clip roll=roll.mp4@track \
+    --clip swim=swim.mp4@loop,air --clip climb_idle=rope.mp4@loop,air,stand=4
+```
+
+Options: `loop` (best loop) or once (default), `track` (centre each frame, for
+clips where the character travels), `air` (centre vertically too),
+`trim=A-B` (clip frames A to B-1), `stand=N` (rescale a wider shot from the
+standing height of its first N frames).
+
+The pack builder trims the transparent border of every frame and moves the
+anchor with it, so placement does not change and the pack is about a third of
+the size of the uncropped frames.
+
 ## Limits
 
 - Not yet checked in game: anchor offset, facing, the grounded/rising bits and
