@@ -1353,6 +1353,8 @@ static int RunGame(const char *rom_path,
         int audio_frames = (int)audio_fraction;
         audio_fraction -= audio_frames;
         RtlRenderAudio(frame_audio, audio_frames, kAudioChannels);
+        Dkc2TelemetryHostAudio(frame_audio, audio_frames, kAudioChannels,
+                               kAudioRate);
         Dkc2MusicMix(frame_audio, audio_frames, 32040);
         if (mode == kSdlSpeedNormal) {
           host.audio_fill_average = Dkc2AudioFillAverage(

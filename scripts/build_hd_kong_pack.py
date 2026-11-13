@@ -42,11 +42,11 @@ ANIMATIONS = ("idle", "walk", "run", "jump", "fall", "fidget", "roll", "carry_id
               "carry_walk", "climb_idle", "climb_move", "swim", "hurt", "ride", "victory",
               "throw", "fidget2", "fidget3", "hang", "climb_down", "carry_front_idle",
               "carry_front_walk", "throw_front", "stand_to_fours", "hang_idle",
-              "climb_wide_idle", "climb_wide_move")
+              "climb_wide_idle", "climb_wide_move", "crouch", "knockout")
 BASIC = 5
 LOOPING = ("idle", "walk", "run", "carry_idle", "carry_walk", "climb_idle", "climb_move",
            "swim", "ride", "hang", "climb_down", "carry_front_idle", "carry_front_walk",
-           "hang_idle", "climb_wide_idle", "climb_wide_move")
+           "hang_idle", "climb_wide_idle", "climb_wide_move", "crouch", "knockout")
 FLAG_FACES_LEFT, FLAG_DIDDY, FLAG_DIXIE = 1, 2, 4
 HEADER_SIZE = 64
 

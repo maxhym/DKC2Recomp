@@ -1322,6 +1322,8 @@ static int RunDesktop(const char *rom_path,
         int audio_frames = (int)audio_fraction;
         audio_fraction -= audio_frames;
         RtlRenderAudio(frame_audio, audio_frames, kAudioChannels);
+        Dkc2TelemetryHostAudio(frame_audio, audio_frames, kAudioChannels,
+                               kAudioRate);
         Dkc2MusicMix(frame_audio, audio_frames, 32040);
         if (mode == kDesktopSpeedNormal && s_audio.available &&
             !AppendAudio(frame_audio, (size_t)audio_frames)) {

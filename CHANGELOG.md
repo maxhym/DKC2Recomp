@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Mandro ducks (`crouch`, animations `$0C`-`$0E`) and lies knocked out when
+  a life is lost or when he is stunned after a team throw (`knockout`,
+  `$0A` and `$28`), from two new clips. In a team-up he holds his partner
+  overhead with the existing overhead carry poses (`$1D`-`$26`) instead of
+  turning back into the native sprite. None of this has been seen in game.
 - Mandro hangs below hooks and horizontal ropes (placed on the native
   sprite's box, with a still `hang_idle` pose) instead of standing on them,
   and spreads between two ropes on nets (`climb_wide_idle`/`climb_wide_move`,

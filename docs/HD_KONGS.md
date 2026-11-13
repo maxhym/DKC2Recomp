@@ -80,8 +80,9 @@ or object; the game still draws the barrel), `climb_idle`/`climb_move`/
 `throw`, `carry_front_idle`/`carry_front_walk`/`throw_front` (an object held
 in front of the chest, as Diddy and Dixie do; the overhead carry slots serve
 Donkey Kong in DKC1Recomp), `stand_to_fours`, `hang_idle` (hanging still
-from a horizontal rope or a hook) and `climb_wide_idle`/`climb_wide_move`
-(spread between two ropes, seen from behind). Hanging poses are placed on
+from a horizontal rope or a hook), `climb_wide_idle`/`climb_wide_move`
+(spread between two ropes, seen from behind), `crouch` (ducked low) and
+`knockout` (lying knocked out; falls back to `hurt`). Hanging poses are placed on
 the top edge of the native sprite's box and two-rope poses on its middle:
 on a hook the native Kong hangs below its origin, so the origin's feet row
 would draw the pose standing on the hook. For each frame the engine picks, in order: `ride` for the rider on an
