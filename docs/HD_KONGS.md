@@ -62,6 +62,22 @@ partner, team-up and handoff, and every animation listed in
 The GDI fallback presenter has no OpenGL and therefore shows the native
 sprite.
 
+## Animation slots
+
+Slots 0-4 (idle, walk, run, jump, fall) come from the motion classifier. A
+pack may add: `fidget` (played once after 7 s standing still), `roll`,
+`carry_idle`/`carry_walk` (holding a barrel or object), `climb_idle`/
+`climb_move`, `swim`, `hurt`, `ride`, `victory` and `throw`. For each frame the
+engine picks, in order: the slot the pack's `animationIds` map assigns to the
+native animation ID; `hurt` in knock-out states `$24/$25/$59`; the carry slots
+while the leader holds an object other than its partner; a fidget; then
+motion. Missing slots fall back (carry walk to carry idle, climb move to
+climb idle, others to idle), and moments with no slot keep the native sprite
+as before. Known rope IDs: single rope `$2F` hang, `$30` up, `$31` down, `$32`
+turn; double rope `$34/$35` transitions, `$36` hang, `$37` up, `$38` down;
+horizontal rope `$39/$3A`. `DKC2_HD_TRACE=1` prints every native animation ID
+and state change, to complete the map for rolls, swimming and celebrations.
+
 ## Styles
 
 Styles run on each composited frame, after the occlusion cut, so the pack
@@ -77,6 +93,12 @@ itself never changes:
 DKCountry's settings page sets the style and size at launch.
 
 ## Pack format (`.dkc2hd`, little-endian)
+
+`DKC2HD02` (extended slots or a map) shares the first 22 bytes with
+`DKC2HD01` below, then: 22 animation count, 24 map count, 32 animation
+records (8 bytes each), steps, native-only IDs, map entries (native ID, slot;
+4 bytes each), frame table and pixels. Packs with only the five basic slots and
+no map are still written as `DKC2HD01`:
 
 | Offset | Size | Field |
 | --- | --- | --- |

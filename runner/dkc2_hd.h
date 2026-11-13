@@ -4,8 +4,10 @@
 /* High-resolution replacement Kongs (presentation only).
  *
  * An HD pack (`.dkc2hd`, built by scripts/build_hd_kong_pack.py) holds
- * straight-alpha RGBA frames grouped into idle/walk/run/jump/fall
- * animations. When a pack is loaded, the replaced Kong's native OAM pieces
+ * straight-alpha RGBA frames grouped into animations: idle/walk/run/jump/fall
+ * chosen from motion, plus optional slots (fidget, roll, carry, climb, swim,
+ * hurt, ride, victory, throw) chosen from a map of native animation IDs, the
+ * sprite state or the context. When a pack is loaded, the replaced Kong's native OAM pieces
  * are hidden from the PPU, the PPU records per pixel whether a higher
  * priority layer covers the Kong, and the host draws the HD frame at window
  * resolution with those covered pixels cut out. Native WRAM, VRAM, OAM,
@@ -25,13 +27,27 @@ typedef struct Ppu Ppu;
 extern "C" {
 #endif
 
+/* Animation slots of a pack. 0-4 are chosen from motion; the others from
+ * the native animation ID (pack map), the sprite state or the context. */
 enum {
   kDkc2HdIdle = 0,
   kDkc2HdWalk = 1,
   kDkc2HdRun = 2,
   kDkc2HdJump = 3,
   kDkc2HdFall = 4,
-  kDkc2HdAnimCount = 5,
+  kDkc2HdFidget = 5,     /* played once after a while standing still */
+  kDkc2HdRoll = 6,
+  kDkc2HdCarryIdle = 7,  /* holding a barrel or object */
+  kDkc2HdCarryWalk = 8,
+  kDkc2HdClimbIdle = 9,
+  kDkc2HdClimbMove = 10,
+  kDkc2HdSwim = 11,
+  kDkc2HdHurt = 12,
+  kDkc2HdRide = 13,
+  kDkc2HdVictory = 14,
+  kDkc2HdThrow = 15,
+  kDkc2HdBasicAnimCount = 5,
+  kDkc2HdAnimCount = 16,
 };
 
 /* Presentation styles, applied to each composited frame at run time. */
@@ -95,7 +111,13 @@ typedef struct Dkc2HdActorInput {
   uint16_t properties;      /* OAM attribute word: flip and priority */
   bool grounded, rising;
   const uint8_t *slots;     /* 128 flags: OAM slots of the native Kong */
+  unsigned animation;       /* native animation ID (slot-relative) */
+  unsigned state;           /* native sprite state ($2E) */
+  bool carrying;            /* holding a barrel or other object */
 } Dkc2HdActorInput;
+
+/* The pack has carry poses (the Kong may then stay HD while carrying). */
+bool Dkc2HdHasCarry(void);
 
 /* Per-frame protocol, driven by dkc2_kongs.c and the PPU line hook. */
 void Dkc2HdBeginFrame(uint32_t tick);

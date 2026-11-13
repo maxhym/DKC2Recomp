@@ -11,6 +11,8 @@ enum {
   kMaxFrames = 1024,
   kMaxSteps = 4096,
   kMaxNativeOnly = 512,
+  kMaxMap = 512,
+  kFidgetDelay = 420, /* ticks standing still before a fidget */
   kMaxFrameSide = 1024,
   kMaskRows = 240,
 };
@@ -35,7 +37,18 @@ typedef struct HdPack {
   HdAnimation animations[kDkc2HdAnimCount];
   uint16_t *native_only;
   size_t native_only_count;
+  uint16_t (*map)[2]; /* native animation ID -> slot */
+  size_t map_count;
 } HdPack;
+
+/* What is shown per Kong slot, beyond the motion classifier. */
+typedef struct HdShow {
+  int animation;
+  uint32_t since, idle_since;
+  unsigned native;
+  bool valid;
+} HdShow;
+static HdShow s_show[2];
 
 typedef struct HdActor {
   bool active, placed;
@@ -77,6 +90,7 @@ static void FreePack(HdPack *pack) {
   free(pack->frames);
   free(pack->steps);
   free(pack->native_only);
+  free(pack->map);
   memset(pack, 0, sizeof *pack);
 }
 
@@ -104,9 +118,18 @@ static bool Invalid(const char *why) {
 }
 
 bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
-  if (!bytes || size < kHeaderSize || size > 256u * 1024u * 1024u ||
-      memcmp(bytes, "DKC2HD01", 8) != 0)
-    return Invalid("not a DKC2HD01 file");
+  const bool v2 = bytes && size >= 32 && memcmp(bytes, "DKC2HD02", 8) == 0;
+  if (!bytes || size < 32 || size > 256u * 1024u * 1024u ||
+      (!v2 && (size < kHeaderSize || memcmp(bytes, "DKC2HD01", 8) != 0)))
+    return Invalid("not a DKC2HD01/02 file");
+  /* v1: five animation records at 24, tables at 64. v2: animation and map
+   * counts at 22/24, records at 32, then steps, native-only list, map. */
+  const unsigned anim_count = v2 ? Read16(bytes + 22) : kDkc2HdBasicAnimCount;
+  const size_t map_count = v2 ? Read16(bytes + 24) : 0;
+  const size_t records = v2 ? 32 : 24;
+  if (!anim_count || anim_count > kDkc2HdAnimCount || map_count > kMaxMap ||
+      records + (size_t)anim_count * 8 > size)
+    return Invalid("bad animation table");
   HdPack pack;
   memset(&pack, 0, sizeof pack);
   pack.flags = Read16(bytes + 8);
@@ -121,8 +144,8 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
   if (!pack.frame_count || pack.frame_count > kMaxFrames || !pack.step_count ||
       pack.step_count > kMaxSteps || pack.native_only_count > kMaxNativeOnly)
     return Invalid("bad table sizes");
-  for (unsigned a = 0; a < kDkc2HdAnimCount; ++a) {
-    const uint8_t *p = bytes + 24 + a * 8;
+  for (unsigned a = 0; a < anim_count; ++a) {
+    const uint8_t *p = bytes + records + a * 8;
     pack.animations[a].first = Read16(p);
     pack.animations[a].count = Read16(p + 2);
     pack.animations[a].loop = Read16(p + 4);
@@ -131,15 +154,18 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
       return Invalid("animation outside the step table");
   }
   if (!pack.animations[kDkc2HdIdle].count) return Invalid("the idle animation is required");
-  size_t cursor = kHeaderSize;
-  const size_t tables = pack.step_count * 4 + pack.native_only_count * 2 + pack.frame_count * 12;
+  size_t cursor = v2 ? records + (size_t)anim_count * 8 : kHeaderSize;
+  pack.map_count = map_count;
+  const size_t tables = pack.step_count * 4 + pack.native_only_count * 2 + map_count * 4 +
+                        pack.frame_count * 12;
   if (tables > size - cursor) return Invalid("truncated tables");
   pack.steps = (HdStep *)calloc(pack.step_count, sizeof *pack.steps);
   pack.native_only = (uint16_t *)calloc(pack.native_only_count ? pack.native_only_count : 1,
                                         sizeof *pack.native_only);
   pack.frames = (HdFrame *)calloc(pack.frame_count, sizeof *pack.frames);
+  pack.map = (uint16_t (*)[2])calloc(map_count ? map_count : 1, sizeof *pack.map);
   pack.data = (uint8_t *)malloc(size);
-  if (!pack.steps || !pack.native_only || !pack.frames || !pack.data) {
+  if (!pack.steps || !pack.native_only || !pack.frames || !pack.map || !pack.data) {
     FreePack(&pack);
     return Invalid("out of memory");
   }
@@ -155,6 +181,14 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
   }
   for (size_t i = 0; i < pack.native_only_count; ++i, cursor += 2)
     pack.native_only[i] = Read16(bytes + cursor);
+  for (size_t i = 0; i < map_count; ++i, cursor += 4) {
+    pack.map[i][0] = Read16(bytes + cursor);
+    pack.map[i][1] = Read16(bytes + cursor + 2);
+    if (pack.map[i][1] >= kDkc2HdAnimCount) {
+      FreePack(&pack);
+      return Invalid("map names an unknown animation slot");
+    }
+  }
   for (size_t i = 0; i < pack.frame_count; ++i, cursor += 12) {
     HdFrame *f = &pack.frames[i];
     f->width = Read16(bytes + cursor);
@@ -173,8 +207,12 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
   FreePack(&s_pack);
   s_pack = pack;
   memset(s_motion, 0, sizeof s_motion);
-  (void)snprintf(s_status, sizeof s_status, "HD pack loaded: %zu frames, scale %.2f",
-                 pack.frame_count, pack.scale);
+  memset(s_show, 0, sizeof s_show);
+  unsigned slots = 0;
+  for (unsigned a = 0; a < kDkc2HdAnimCount; ++a) slots += s_pack.animations[a].count != 0;
+  (void)snprintf(s_status, sizeof s_status,
+                 "HD pack loaded: %zu frames, %u animations, scale %.2f",
+                 pack.frame_count, slots, pack.scale);
   return true;
 }
 
@@ -242,7 +280,26 @@ bool Dkc2HdReplaces(unsigned who) {
   return (s_pack.flags & (who ? kDkc2HdFlagReplaceDixie : kDkc2HdFlagReplaceDiddy)) != 0;
 }
 
+static int MappedSlot(unsigned animation) {
+  for (size_t i = 0; i < s_pack.map_count; ++i)
+    if (s_pack.map[i][0] == animation && s_pack.animations[s_pack.map[i][1]].count)
+      return s_pack.map[i][1];
+  return -1;
+}
+
+static bool IsHurtState(unsigned state) {
+  return state == 0x24 || state == 0x25 || state == 0x59;
+}
+
+bool Dkc2HdHasCarry(void) {
+  return Dkc2HdEnabled() && (s_pack.animations[kDkc2HdCarryIdle].count ||
+                             s_pack.animations[kDkc2HdCarryWalk].count);
+}
+
 bool Dkc2HdAllowsState(unsigned animation, unsigned state) {
+  /* A pose the pack maps or a hurt pose it carries wins over the defaults. */
+  if (MappedSlot(animation) >= 0) return true;
+  if (IsHurtState(state) && s_pack.animations[kDkc2HdHurt].count) return true;
   /* Knocked out, barrel, carried, thrown and rope-transition states keep
    * the native art; the pack has no matching poses. */
   switch (state) {
@@ -291,6 +348,8 @@ static int Resolve(int animation) {
   if (s_pack.animations[animation].count) return animation;
   switch (animation) {
     case kDkc2HdRun: return Resolve(kDkc2HdWalk);
+    case kDkc2HdCarryWalk: return Resolve(kDkc2HdCarryIdle);
+    case kDkc2HdClimbMove: return Resolve(kDkc2HdClimbIdle);
     case kDkc2HdFall: return s_pack.animations[kDkc2HdJump].count ? kDkc2HdJump : kDkc2HdIdle;
     default: return kDkc2HdIdle;
   }
@@ -311,9 +370,16 @@ static const HdFrame *FrameAt(int animation, uint32_t elapsed) {
   return &s_pack.frames[s_pack.steps[a->first + a->count - 1].frame];
 }
 
+static uint32_t Duration(int animation) {
+  const HdAnimation *a = &s_pack.animations[animation];
+  uint32_t total = 0;
+  for (unsigned i = 0; i < a->count; ++i) total += s_pack.steps[a->first + i].duration;
+  return total;
+}
+
 void Dkc2HdBeginFrame(uint32_t tick) {
   for (unsigned a = 0; a < 2; ++a) {
-    if (!s_actors[a].active) s_motion[a].valid = false;
+    if (!s_actors[a].active) s_motion[a].valid = s_show[a].valid = false;
     s_actors[a].active = s_actors[a].placed = false;
   }
   memset(s_owned, 0, sizeof s_owned);
@@ -333,11 +399,44 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
   else memset(actor->slots, 0, sizeof actor->slots);
   for (unsigned i = 0; i < 128; ++i)
     if (actor->slots[i]) s_owned[i] = 1;
-  const int previous = s_motion[who].animation;
-  const int animation = Dkc2HdClassify(&s_motion[who], input->world_x, input->world_y,
-                                       input->grounded, input->rising, s_tick);
+  HdShow *show = &s_show[who];
+  const int previous = show->valid ? show->animation : -1;
+  const unsigned previous_native = show->native;
+  const int moving = Dkc2HdClassify(&s_motion[who], input->world_x, input->world_y,
+                                    input->grounded, input->rising, s_tick);
+  if (!show->valid) {
+    show->valid = true;
+    show->animation = -1;
+    show->idle_since = s_tick;
+  }
+  /* A finished fidget restarts the wait before the next one. */
+  if (show->animation == kDkc2HdFidget && s_tick - show->since >= Duration(kDkc2HdFidget))
+    show->idle_since = s_tick;
+  /* Priority: the pack's map for this native animation, a hurt pose, the
+   * carry poses, a fidget after standing still, then motion. */
+  int animation = MappedSlot(input->animation);
+  if (animation < 0 && IsHurtState(input->state) && s_pack.animations[kDkc2HdHurt].count)
+    animation = kDkc2HdHurt;
+  if (animation < 0 && input->carrying && Dkc2HdHasCarry())
+    animation = moving == kDkc2HdWalk || moving == kDkc2HdRun ? kDkc2HdCarryWalk
+                                                              : kDkc2HdCarryIdle;
+  if (animation < 0 && moving == kDkc2HdIdle && s_pack.animations[kDkc2HdFidget].count) {
+    const bool fidgeting = show->animation == kDkc2HdFidget &&
+                           s_tick - show->since < Duration(kDkc2HdFidget);
+    if (fidgeting || s_tick - show->idle_since >= kFidgetDelay) animation = kDkc2HdFidget;
+  }
+  if (animation < 0) animation = moving;
+  if (animation != kDkc2HdIdle && animation != kDkc2HdFidget) show->idle_since = s_tick;
+  if (animation != show->animation) {
+    /* Motion classes keep the classifier's clock; other slots start now. */
+    const bool both_motion = animation < kDkc2HdBasicAnimCount &&
+                             show->animation >= 0 && show->animation < kDkc2HdBasicAnimCount;
+    show->since = both_motion ? s_motion[who].started : s_tick;
+    show->animation = animation;
+  }
+  show->native = input->animation;
   const int resolved = Resolve(animation);
-  uint32_t elapsed = s_tick - s_motion[who].started;
+  uint32_t elapsed = s_tick - show->since;
   if (resolved == kDkc2HdWalk && animation == kDkc2HdRun)
     elapsed = elapsed * 8 / 5; /* no run clip: a faster walk */
   if (resolved == kDkc2HdJump && animation == kDkc2HdFall)
@@ -350,9 +449,11 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
     s_trace_checked = true;
     s_trace = getenv("DKC2_HD_TRACE") != NULL;
   }
-  if (s_trace && previous != s_motion[who].animation)
-    fprintf(stderr, "hd who=%u class=%d grounded=%d rising=%d x=%d y=%d\n", who,
-            s_motion[who].animation, input->grounded, input->rising, input->world_x, input->world_y);
+  /* The trace also lists native animation IDs, to grow the pack's map. */
+  if (s_trace && (previous != show->animation || previous_native != input->animation))
+    fprintf(stderr, "hd who=%u slot=%d native=0x%02X state=0x%02X carrying=%d grounded=%d rising=%d x=%d y=%d\n",
+            who, show->animation, input->animation, input->state, input->carrying,
+            input->grounded, input->rising, input->world_x, input->world_y);
 }
 
 bool Dkc2HdOwnsSlot(unsigned slot) {
@@ -607,5 +708,5 @@ unsigned Dkc2HdActiveActors(void) {
 }
 
 int Dkc2HdActorAnimation(unsigned who) {
-  return who < 2 && s_actors[who].active ? s_motion[who].animation : -1;
+  return who < 2 && s_actors[who].active ? s_show[who].animation : -1;
 }

@@ -71,6 +71,33 @@ class BuildHdKongPackTests(unittest.TestCase):
             self.assertEqual(data[offset:offset + 4], bytes((0, 0, 255, 255)))
             self.assertEqual(len(data), offset + 64)
 
+    def test_extended_slots_and_map_use_v2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_png(root / "a.png", 2, 2, (9, 9, 9, 255))
+            (root / "pack.json").write_text(json.dumps({
+                "animationIds": {"climb_idle": [47, 54], "roll": [12]},
+                "animations": {
+                    "idle": {"frames": [["a.png", 4]]},
+                    "roll": {"frames": [["a.png", 2], ["a.png", 2]]},
+                    "climb_idle": {"frames": [["a.png", 6]]},
+                }}))
+            data, frames, steps = pack.build(root)
+            self.assertEqual(data[:8], b"DKC2HD02")
+            anims, maps = struct.unpack_from("<HH", data, 22)
+            self.assertEqual(anims, pack.ANIMATIONS.index("climb_idle") + 1)
+            self.assertEqual(maps, 3)
+            roll = struct.unpack_from("<HHHH", data, 32 + pack.ANIMATIONS.index("roll") * 8)
+            climb = struct.unpack_from("<HHHH", data, 32 + pack.ANIMATIONS.index("climb_idle") * 8)
+            self.assertEqual((roll[1], roll[2]), (2, 0))
+            self.assertEqual((climb[1], climb[2]), (1, 1))
+            map_at = 32 + anims * 8 + steps * 4
+            self.assertEqual(struct.unpack_from("<HH", data, map_at), (47, pack.ANIMATIONS.index("climb_idle")))
+            (root / "pack.json").write_text(json.dumps({
+                "animationIds": {"dance": [1]}, "animations": {"idle": {"frames": [["a.png", 1]]}}}))
+            with self.assertRaises(ValueError):
+                pack.build(root)
+
     def test_rejects_bad_specs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -88,7 +115,7 @@ class BuildHdKongPackTests(unittest.TestCase):
             self.skipTest("Mandro frames are not present")
         data, frames, steps = pack.build(source)
         self.assertGreater(frames, 50)
-        for name in ("idle", "walk", "run", "jump", "fall"):
+        for name in pack.ANIMATIONS[:5]:
             index = pack.ANIMATIONS.index(name)
             self.assertGreater(struct.unpack_from("<HHHH", data, 24 + index * 8)[1], 0, name)
 

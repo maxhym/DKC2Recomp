@@ -12,13 +12,20 @@ build. Input is a directory holding `pack.json` and RGBA PNG frames:
       "replace": ["diddy"],         # "diddy" and/or "dixie"
       "anchor": [128, 248],         # HD pixel placed on the Kong's origin
       "nativeOnlyAnimations": [10, 11],
+      "animationIds": {"climb_idle": [47, 54], "roll": [12]},
       "animations": {
         "idle": {"loop": true, "frames": [["idle/000.png", 3], ...]},
-        "walk": ..., "run": ..., "jump": ..., "fall": ...
+        "walk": ..., "run": ..., "jump": ..., "fall": ...,
+        "fidget": ..., "roll": ..., "carry_idle": ..., "carry_walk": ...,
+        "climb_idle": ..., "climb_move": ..., "swim": ..., "hurt": ...,
+        "ride": ..., "victory": ..., "throw": ...
       }
     }
 
 Only "idle" is required. Frame durations are in 60 Hz game frames.
+"animationIds" maps native animation IDs to a slot; a pack using only the
+first five slots and no map is written in the original DKC2HD01 layout,
+anything else as DKC2HD02.
 The binary layout is documented in docs/HD_KONGS.md.
 """
 import argparse
@@ -28,7 +35,12 @@ import struct
 import sys
 import zlib
 
-ANIMATIONS = ("idle", "walk", "run", "jump", "fall")
+ANIMATIONS = ("idle", "walk", "run", "jump", "fall", "fidget", "roll", "carry_idle",
+              "carry_walk", "climb_idle", "climb_move", "swim", "hurt", "ride", "victory",
+              "throw")
+BASIC = 5
+LOOPING = ("idle", "walk", "run", "carry_idle", "carry_walk", "climb_idle", "climb_move",
+           "swim", "ride")
 FLAG_FACES_LEFT, FLAG_DIDDY, FLAG_DIXIE = 1, 2, 4
 HEADER_SIZE = 64
 
@@ -125,22 +137,35 @@ def build(directory):
                 frame_index[file] = len(frames)
                 frames.append((w, h, int(ax), int(ay), rgba))
             steps.append((frame_index[file], duration))
-        table.append((first, len(steps) - first, 1 if anim.get("loop", name in ("idle", "walk", "run")) else 0))
+        table.append((first, len(steps) - first, 1 if anim.get("loop", name in LOOPING) else 0))
     native_only = [int(v) for v in spec.get("nativeOnlyAnimations", [])]
+    mapping = []
+    for name, ids in spec.get("animationIds", {}).items():
+        if name not in ANIMATIONS:
+            raise ValueError(f"animationIds names an unknown animation: {name}")
+        mapping += [(int(i), ANIMATIONS.index(name)) for i in ids]
+    used = max([i for i, (_, count, _) in enumerate(table) if count] + [0]) + 1
+    v2 = used > BASIC or bool(mapping)
+    count = used if v2 else BASIC
 
-    header = bytearray(HEADER_SIZE)
-    header[0:8] = b"DKC2HD01"
+    header = bytearray(32 + count * 8 if v2 else HEADER_SIZE)
+    header[0:8] = b"DKC2HD02" if v2 else b"DKC2HD01"
     struct.pack_into("<HHhhHHH", header, 8, flags, round(scale * 256),
                      round(offset_x * 16), round(offset_y * 16),
                      len(frames), len(steps), len(native_only))
-    for i, (first, count, loop) in enumerate(table):
-        struct.pack_into("<HHHH", header, 24 + i * 8, first, count, loop, 0)
+    if v2:
+        struct.pack_into("<HH", header, 22, count, len(mapping))
+    records = 32 if v2 else 24
+    for i, (first, n, loop) in enumerate(table[:count]):
+        struct.pack_into("<HHHH", header, records + i * 8, first, n, loop, 0)
     body = bytearray()
     for frame, duration in steps:
         body += struct.pack("<HH", frame, duration)
     for value in native_only:
         body += struct.pack("<H", value)
-    pixels_at = HEADER_SIZE + len(body) + 12 * len(frames)
+    for native, slot in mapping:
+        body += struct.pack("<HH", native, slot)
+    pixels_at = len(header) + len(body) + 12 * len(frames)
     frame_table, pixels = bytearray(), bytearray()
     for w, h, ax, ay, rgba in frames:
         frame_table += struct.pack("<HHhhI", w, h, ax, ay, pixels_at + len(pixels))

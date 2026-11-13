@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- HD Kong packs can carry more animations (pack format DKC2HD02): fidget,
+  roll, carry, climb, swim, hurt, ride, victory and throw, selected from a
+  map of native animation IDs, the knock-out states or the held object.
+  Fidgets play after a while standing still. The trace now lists native
+  animation IDs to extend the map.
 - HD Kong styles and size, applied at run time without touching the pack:
   `DKC2_HD_STYLE` (hd, doux, retro with 15-bit colour, coarser pixels and an
   outline, crt with native-scanline shading) and `DKC2_HD_SIZE` (percent).

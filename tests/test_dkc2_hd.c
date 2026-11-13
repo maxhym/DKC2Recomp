@@ -198,6 +198,90 @@ static void TestToggle(void) {
   CHECK(Dkc2HdReplaces(0));
 }
 
+/* v2 pack: idle (frame 0), fidget (frame 1 for 10 ticks, once), roll,
+ * carry_idle and hurt (frame 1), and a map from native animation 12 to roll.
+ * Native animation 12 is also listed as native-only: the map must win. */
+static size_t BuildPackV2(uint8_t *out) {
+  const unsigned frames = 2, anims = kDkc2HdHurt + 1, steps = 5, native_only = 1, maps = 1;
+  memset(out, 0, 4096);
+  memcpy(out, "DKC2HD02", 8);
+  Put16(out + 8, kDkc2HdFlagReplaceDiddy);
+  Put16(out + 10, 4 * 256);
+  Put16(out + 16, frames);
+  Put16(out + 18, steps);
+  Put16(out + 20, native_only);
+  Put16(out + 22, anims);
+  Put16(out + 24, maps);
+  const unsigned slot_step[][2] = {{kDkc2HdIdle, 0}, {kDkc2HdFidget, 1}, {kDkc2HdRoll, 2},
+                                   {kDkc2HdCarryIdle, 3}, {kDkc2HdHurt, 4}};
+  for (unsigned i = 0; i < 5; ++i) {
+    uint8_t *r = out + 32 + slot_step[i][0] * 8;
+    Put16(r, slot_step[i][1]);
+    Put16(r + 2, 1);
+    Put16(r + 4, slot_step[i][0] != kDkc2HdFidget);
+  }
+  size_t c = 32 + anims * 8;
+  for (unsigned i = 0; i < steps; ++i, c += 4) {
+    Put16(out + c, i == 0 ? 0 : 1);
+    Put16(out + c + 2, i == 1 ? 10 : 4);
+  }
+  Put16(out + c, 12); c += 2;                        /* native-only */
+  Put16(out + c, 12); Put16(out + c + 2, kDkc2HdRoll); c += 4;
+  const size_t table = c;
+  size_t pixels = table + frames * 12;
+  for (unsigned f = 0; f < frames; ++f) {
+    uint8_t *e = out + table + f * 12;
+    Put16(e, 8); Put16(e + 2, 8); Put16(e + 4, 4); Put16(e + 6, 8);
+    Put32(e + 8, (uint32_t)pixels);
+    memset(out + pixels, f ? 0x80 : 0xFF, 64 * 4);
+    pixels += 64 * 4;
+  }
+  return pixels;
+}
+
+static int Shown(Dkc2HdActorInput *in, uint32_t tick) {
+  Dkc2HdBeginFrame(tick);
+  Dkc2HdSetActor(0, in);
+  return Dkc2HdActorAnimation(0);
+}
+
+static void TestExtendedSlots(void) {
+  static uint8_t pack[4096];
+  CHECK(Dkc2HdLoadBytes(pack, BuildPackV2(pack)));
+  CHECK(strstr(Dkc2HdStatus(), "5 animations") != NULL);
+  CHECK(Dkc2HdAllowsState(12, 0x00));      /* mapped wins over native-only */
+  CHECK(Dkc2HdAllowsState(1, 0x24));       /* hurt pose available */
+  CHECK(Dkc2HdHasCarry());
+  uint8_t slots[128] = {0};
+  Dkc2HdActorInput in = Actor(slots, 2u << 12);
+  uint32_t t = 1000;
+  Dkc2HdBeginFrame(t++);
+  CHECK(Shown(&in, t++) == kDkc2HdIdle);
+  in.animation = 12;
+  CHECK(Shown(&in, t++) == kDkc2HdRoll);
+  in.animation = 0;
+  in.state = 0x24;
+  CHECK(Shown(&in, t++) == kDkc2HdHurt);
+  in.state = 0;
+  in.carrying = true;
+  CHECK(Shown(&in, t++) == kDkc2HdCarryIdle);
+  in.carrying = false;
+  /* Standing still long enough plays the fidget once, then idles again. */
+  int seen_fidget = 0, after = -1;
+  for (unsigned i = 0; i < 440; ++i) {
+    const int shown = Shown(&in, t++);
+    if (shown == kDkc2HdFidget) ++seen_fidget;
+    else if (seen_fidget) { after = shown; break; }
+  }
+  CHECK(seen_fidget == 10);
+  CHECK(after == kDkc2HdIdle);
+  /* A truncated or out-of-range map is rejected. */
+  const size_t size = BuildPackV2(pack);
+  CHECK(!Dkc2HdLoadBytes(pack, 40));
+  Put16(pack + 22, 99);
+  CHECK(!Dkc2HdLoadBytes(pack, size));
+}
+
 /* Styles work on the composited frame; the pack is never modified. */
 static void TestStyles(void) {
   static uint8_t pack[4096];
@@ -270,6 +354,7 @@ int main(int argc, char **argv) {
   TestCompositing();
   TestToggle();
   TestStyles();
+  TestExtendedSlots();
   TestInactive();
   TestRealPack(argc > 1 ? argv[1] : NULL);
   if (failures) {

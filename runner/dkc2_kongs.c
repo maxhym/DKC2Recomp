@@ -902,7 +902,7 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
         Dkc2HdAllowsState(animation, Read16(ram + a + 0x2e)) &&
         !(team_animation && (a == leader || a == partner)) &&
         !(handoff && (a == handoff || a == partner)) &&
-        held != a && !(held && a == leader);
+        held != a && !(held && a == leader && (held == partner || !Dkc2HdHasCarry()));
     if (!hd && !s_choices[who]) continue;
     int rider_dx = 0, rider_dy = 0;
     const KongFrame *frame = hd ? NULL :
@@ -977,6 +977,9 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
       input.grounded = (Read16(ram + a + 0x1e) & 0x0101) != 0;
       input.rising = (Read16(ram + a + 0x24) & 0x8000) != 0;
       input.slots = actor->slots;
+      input.animation = animation;
+      input.state = Read16(ram + a + 0x2e);
+      input.carrying = held && a == leader && held != partner;
       Dkc2HdSetActor(who, &input);
       memset(actor, 0, sizeof *actor);
       continue;
