@@ -157,6 +157,13 @@ try {
         Copy-Item -LiteralPath (Join-Path $Build $Relative) -Destination $Target
     }
 
+    # Optional HD replacement Kong pack (original art, see docs/HD_KONGS.md).
+    $HdPack = Join-Path $Build "mods\kong-hd.dkc2hd"
+    if (Test-Path -LiteralPath $HdPack -PathType Leaf) {
+        New-Item -ItemType Directory -Path (Join-Path $Staging "mods") -Force | Out-Null
+        Copy-Item -LiteralPath $HdPack -Destination (Join-Path $Staging "mods")
+    }
+
     foreach ($Name in @("README.md", "CHANGELOG.md", "LICENSE",
                          "THIRD_PARTY_NOTICES.md")) {
         Copy-Item -LiteralPath (Join-Path $Repository $Name) -Destination $Staging
