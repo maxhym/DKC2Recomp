@@ -16,6 +16,18 @@ Authoring tool (needs ffmpeg, numpy and Pillow); the build itself does not.
   dropped because the game supplies its own timing.
 * Every animation shares one scale, set so the idle body is --body-height
   HD pixels tall, on a --canvas square with the anchor at the feet.
+* Extra slots (fidget, roll, carry_idle, climb_idle, swim, hurt...) come from
+  repeated --clip NAME=PATH[@OPTIONS] arguments. OPTIONS is a comma list:
+  "loop" (find the best loop, as for walk) or "once" (default; all frames),
+  "track" (centre each frame on its own centre of mass, for clips where the
+  character travels), "air" (also centre vertically, for swimming or
+  hanging), "trim=A-B" (keep clip frames A..B-1), "stand=N" (the first N
+  frames show the character standing; their height rescales a clip framed
+  wider than the idle one), "open=N" (remove keyed structures thinner than N
+  pixels, such as a pole or bar the character holds), "every=N" (keep one
+  clip frame in N, each shown N times longer; halves a long clip's size).
+* --merge keeps the animations, animationIds and tuning of an existing
+  pack.json in --out and only replaces the slots given on this run.
 """
 import argparse
 import json
@@ -25,7 +37,7 @@ import subprocess
 import zlib
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 def read_video(path):
@@ -49,6 +61,18 @@ def key(frame):
     out = np.stack([r, g2, b, alpha * 255.0], axis=-1)
     out[alpha < 0.04] = 0
     return out.astype(np.uint8)
+
+
+def remove_thin(rgba, size):
+    """Drop opaque structures thinner than `size` pixels (a morphological
+    opening of the alpha mask); soft edges of the body are kept."""
+    size = max(3, size | 1)
+    alpha = Image.fromarray(rgba[..., 3])
+    opened = alpha.filter(ImageFilter.MinFilter(size)).filter(ImageFilter.MaxFilter(size))
+    out = rgba.copy()
+    out[..., 3] = np.minimum(rgba[..., 3], np.asarray(opened))
+    out[out[..., 3] == 0] = 0
+    return out
 
 
 def measure(rgba):
@@ -139,6 +163,10 @@ def main():
     parser.add_argument("--body-height", type=int, default=192)
     parser.add_argument("--canvas", type=int, default=256)
     parser.add_argument("--native-scale", type=float, default=4.0)
+    parser.add_argument("--clip", action="append", default=[], metavar="NAME=PATH[@OPTS]",
+                        help="an extra slot; see the module docstring for OPTS")
+    parser.add_argument("--merge", action="store_true",
+                        help="keep the other slots and settings of an existing pack.json")
     args = parser.parse_args()
     anchor = (args.canvas // 2, args.canvas - 8)
     args.out.mkdir(parents=True, exist_ok=True)
@@ -156,17 +184,21 @@ def main():
     idle_feet_to_com = float(np.median([m["bottom"] - m["cy"] for m in valid]))
     animations, report = {}, {}
 
-    def emit(name, frames, ms, loop, airborne=False, ground=None, clip_scale=None):
+    def emit(name, frames, ms, loop, airborne=False, ground=None, clip_scale=None,
+             track=False, every=1):
         clip_scale = clip_scale or scale
         (args.out / name).mkdir(exist_ok=True)
+        for stale in (args.out / name).glob("*.png"):
+            stale.unlink()
         entries = []
         if ground is None:
             ground = max(m["bottom"] for m in ms)
         com_x = float(np.median([m["cx"] for m in ms]))
-        for k, (f, m, d) in enumerate(zip(frames, ms, durations(len(frames)))):
+        frames, ms = frames[::every], ms[::every]
+        for k, (f, m, d) in enumerate(zip(frames, ms, durations(len(frames), 24.0 / every))):
             # Airborne frames are centred one by one (the game moves the Kong);
             # ground cycles keep their natural sway around the clip's median.
-            cx = m["cx"] if airborne else com_x
+            cx = m["cx"] if airborne or track else com_x
             img = place(f, m, clip_scale, args.canvas, anchor, ground, cx,
                         round(idle_feet_to_com * scale) if airborne else None)
             rel = f"{name}/{k:03d}.png"
@@ -204,6 +236,45 @@ def main():
                 emit("fall", [frames[k] for k in fall], [ms[k] for k in fall], False, True,
                      clip_scale=jump_scale)
 
+    for item in args.clip:
+        name, _, rest = item.partition("=")
+        path, _, opts = rest.partition("@")
+        if not name or not path:
+            parser.error(f"--clip expects NAME=PATH[@OPTS], got {item!r}")
+        opts = {o.split("=")[0]: (o.split("=", 1)[1] if "=" in o else True)
+                for o in opts.split(",") if o}
+        frames = [key(f) for f in read_video(Path(path))]
+        if "open" in opts:
+            frames = [remove_thin(f, int(opts["open"])) for f in frames]
+        ms = [measure(f) for f in frames]
+        if "trim" in opts:
+            a, b = (int(v) for v in opts["trim"].split("-"))
+            frames, ms = frames[a:b], ms[a:b]
+        keep = [k for k, m in enumerate(ms) if m]
+        frames, ms = [frames[k] for k in keep], [ms[k] for k in keep]
+        if not frames:
+            parser.error(f"--clip {name}: no keyed character found")
+        clip_scale = scale
+        if "stand" in opts:
+            n = max(1, int(opts["stand"]))
+            clip_scale = scale * float(np.median([m["height"] for m in ms[:n]])) ** -1 * \
+                float(np.median([m["height"] for m in valid]))
+        loop = "loop" in opts
+        if loop:
+            n = len(frames)
+            i, j = best_loop(frames, max(6, n // 4), max(7, n - 1))
+            frames, ms = frames[i:j], ms[i:j]
+        emit(name, frames, ms, loop, airborne="air" in opts, clip_scale=clip_scale,
+             track="track" in opts, every=max(1, int(opts.get("every", 1))))
+
+    previous = {}
+    pack_path = args.out / "pack.json"
+    if args.merge and pack_path.exists():
+        previous = json.loads(pack_path.read_text(encoding="utf-8"))
+        merged = dict(previous.get("animations", {}))
+        merged.update(animations)
+        animations = merged
+
     spec = {
         "name": args.name,
         "scale": args.native_scale,
@@ -214,6 +285,10 @@ def main():
         "nativeOnlyAnimations": [10, 11] + list(range(29, 43)) + [73] + list(range(94, 159)),
         "animations": animations,
     }
+    for field in ("scale", "offset", "facesLeft", "replace", "nativeOnlyAnimations",
+                  "animationIds"):
+        if field in previous:
+            spec[field] = previous[field]
     (args.out / "pack.json").write_text(json.dumps(spec, indent=1) + "\n", encoding="utf-8")
     print(json.dumps({"scale": scale, "frames": report}))
 

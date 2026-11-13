@@ -4,8 +4,10 @@
 /* High-resolution replacement Kongs (presentation only).
  *
  * An HD pack (`.dkc2hd`, built by scripts/build_hd_kong_pack.py) holds
- * straight-alpha RGBA frames grouped into idle/walk/run/jump/fall
- * animations. When a pack is loaded, the replaced Kong's native OAM pieces
+ * straight-alpha RGBA frames grouped into animations: idle/walk/run/jump/fall
+ * chosen from motion, plus optional slots (fidget, roll, carry, climb, swim,
+ * hurt, ride, victory, throw) chosen from a map of native animation IDs, the
+ * sprite state or the context. When a pack is loaded, the replaced Kong's native OAM pieces
  * are hidden from the PPU, the PPU records per pixel whether a higher
  * priority layer covers the Kong, and the host draws the HD frame at window
  * resolution with those covered pixels cut out. Native WRAM, VRAM, OAM,
@@ -25,14 +27,48 @@ typedef struct Ppu Ppu;
 extern "C" {
 #endif
 
+/* Animation slots of a pack. 0-4 are chosen from motion; the others from
+ * the native animation ID (pack map), the sprite state or the context. */
 enum {
   kDkc2HdIdle = 0,
   kDkc2HdWalk = 1,
   kDkc2HdRun = 2,
   kDkc2HdJump = 3,
   kDkc2HdFall = 4,
-  kDkc2HdAnimCount = 5,
+  kDkc2HdFidget = 5,     /* played once after a while standing still; the
+                          * fidget slots take turns */
+  kDkc2HdRoll = 6,
+  kDkc2HdCarryIdle = 7,  /* holding a barrel or object */
+  kDkc2HdCarryWalk = 8,
+  kDkc2HdClimbIdle = 9,
+  kDkc2HdClimbMove = 10,
+  kDkc2HdSwim = 11,
+  kDkc2HdHurt = 12,
+  kDkc2HdRide = 13,      /* seated on an animal (the rider sprite) */
+  kDkc2HdVictory = 14,
+  kDkc2HdThrow = 15,
+  kDkc2HdFidget2 = 16,
+  kDkc2HdFidget3 = 17,
+  kDkc2HdHang = 18,      /* hanging from a horizontal rope */
+  kDkc2HdClimbDown = 19,
+  kDkc2HdBasicAnimCount = 5,
+  kDkc2HdAnimCount = 20,
 };
+
+/* Presentation styles, applied to each composited frame at run time. */
+enum {
+  kDkc2HdStyleHd = 0,    /* the pack's frames as drawn */
+  kDkc2HdStyleSoft = 1,  /* softened edges, slightly muted colours */
+  kDkc2HdStyleRetro = 2, /* 15-bit colour, coarser pixels, dark outline */
+  kDkc2HdStyleCrt = 3,   /* softened and darkened between native scanlines */
+  kDkc2HdStyleCount = 4,
+};
+void Dkc2HdSetStyle(int style);
+int Dkc2HdStyle(void);
+int Dkc2HdStyleFromName(const char *name);
+/* Size relative to the pack (0.5 to 2.0, 1.0 by default). */
+void Dkc2HdSetSize(float size);
+float Dkc2HdSize(void);
 
 enum {
   kDkc2HdFlagFacesLeft = 1,
@@ -48,7 +84,9 @@ const char *Dkc2HdStatus(void);
 /* Loads DKC2_HD_PACK or mods/kong-hd.dkc2hd; DKC2_HD=0 disables HD.
  * Tuning without rebuilding the pack: DKC2_HD_OFFSET="dx,dy" (native px),
  * DKC2_HD_SCALE (HD px per native px), DKC2_HD_FLIP=1 (mirror the facing),
- * DKC2_HD_REPLACE=diddy|dixie|both, DKC2_HD_TRACE=1 (log animation changes). */
+ * DKC2_HD_REPLACE=diddy|dixie|both, DKC2_HD_TRACE=1 (log animation changes),
+ * DKC2_HD_STYLE=hd|doux|retro|crt (presentation style) and DKC2_HD_SIZE=percent
+ * (50-200, character size relative to the pack's). */
 void Dkc2HdInitialize(void);
 void Dkc2HdSetEnabled(bool enabled);
 /* Flips HD on/off (bound to F8 in the desktop hosts); returns the new state. */
@@ -78,7 +116,16 @@ typedef struct Dkc2HdActorInput {
   uint16_t properties;      /* OAM attribute word: flip and priority */
   bool grounded, rising;
   const uint8_t *slots;     /* 128 flags: OAM slots of the native Kong */
+  unsigned animation;       /* native animation ID (slot-relative) */
+  unsigned state;           /* native sprite state ($2E) */
+  bool carrying;            /* holding a barrel or other object */
+  bool riding;              /* the rider sprite on an animal */
 } Dkc2HdActorInput;
+
+/* The pack has carry poses (the Kong may then stay HD while carrying). */
+bool Dkc2HdHasCarry(void);
+/* The pack has a ride pose (the rider on an animal may then be HD). */
+bool Dkc2HdHasRide(void);
 
 /* Per-frame protocol, driven by dkc2_kongs.c and the PPU line hook. */
 void Dkc2HdBeginFrame(uint32_t tick);

@@ -11,6 +11,8 @@ enum {
   kMaxFrames = 1024,
   kMaxSteps = 4096,
   kMaxNativeOnly = 512,
+  kMaxMap = 512,
+  kFidgetDelay = 300, /* ticks standing still before a fidget */
   kMaxFrameSide = 1024,
   kMaskRows = 240,
 };
@@ -35,7 +37,19 @@ typedef struct HdPack {
   HdAnimation animations[kDkc2HdAnimCount];
   uint16_t *native_only;
   size_t native_only_count;
+  uint16_t (*map)[2]; /* native animation ID -> slot */
+  size_t map_count;
 } HdPack;
+
+/* What is shown per Kong slot, beyond the motion classifier. */
+typedef struct HdShow {
+  int animation;
+  uint32_t since, idle_since;
+  unsigned native;
+  unsigned fidget_turn; /* next fidget slot to try */
+  bool valid;
+} HdShow;
+static HdShow s_show[2];
 
 typedef struct HdActor {
   bool active, placed;
@@ -56,6 +70,13 @@ static uint8_t s_owned[128];
 static uint8_t s_mask[kMaskRows][kPpuBufWidth];
 static uint8_t *s_out[2];
 static size_t s_out_capacity[2];
+static uint8_t *s_tmp;
+static size_t s_tmp_capacity;
+/* Presentation style and size, chosen by the player (launcher). */
+static int s_style = kDkc2HdStyleHd;
+static float s_size = 1.0f;
+
+static float EffectiveScale(void) { return s_pack.scale / s_size; }
 static Dkc2OverlaySprite s_sprites[2];
 static int s_sprite_count;
 static uint32_t s_serial;
@@ -70,6 +91,7 @@ static void FreePack(HdPack *pack) {
   free(pack->frames);
   free(pack->steps);
   free(pack->native_only);
+  free(pack->map);
   memset(pack, 0, sizeof *pack);
 }
 
@@ -97,9 +119,18 @@ static bool Invalid(const char *why) {
 }
 
 bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
-  if (!bytes || size < kHeaderSize || size > 256u * 1024u * 1024u ||
-      memcmp(bytes, "DKC2HD01", 8) != 0)
-    return Invalid("not a DKC2HD01 file");
+  const bool v2 = bytes && size >= 32 && memcmp(bytes, "DKC2HD02", 8) == 0;
+  if (!bytes || size < 32 || size > 256u * 1024u * 1024u ||
+      (!v2 && (size < kHeaderSize || memcmp(bytes, "DKC2HD01", 8) != 0)))
+    return Invalid("not a DKC2HD01/02 file");
+  /* v1: five animation records at 24, tables at 64. v2: animation and map
+   * counts at 22/24, records at 32, then steps, native-only list, map. */
+  const unsigned anim_count = v2 ? Read16(bytes + 22) : kDkc2HdBasicAnimCount;
+  const size_t map_count = v2 ? Read16(bytes + 24) : 0;
+  const size_t records = v2 ? 32 : 24;
+  if (!anim_count || anim_count > kDkc2HdAnimCount || map_count > kMaxMap ||
+      records + (size_t)anim_count * 8 > size)
+    return Invalid("bad animation table");
   HdPack pack;
   memset(&pack, 0, sizeof pack);
   pack.flags = Read16(bytes + 8);
@@ -114,8 +145,8 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
   if (!pack.frame_count || pack.frame_count > kMaxFrames || !pack.step_count ||
       pack.step_count > kMaxSteps || pack.native_only_count > kMaxNativeOnly)
     return Invalid("bad table sizes");
-  for (unsigned a = 0; a < kDkc2HdAnimCount; ++a) {
-    const uint8_t *p = bytes + 24 + a * 8;
+  for (unsigned a = 0; a < anim_count; ++a) {
+    const uint8_t *p = bytes + records + a * 8;
     pack.animations[a].first = Read16(p);
     pack.animations[a].count = Read16(p + 2);
     pack.animations[a].loop = Read16(p + 4);
@@ -124,15 +155,18 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
       return Invalid("animation outside the step table");
   }
   if (!pack.animations[kDkc2HdIdle].count) return Invalid("the idle animation is required");
-  size_t cursor = kHeaderSize;
-  const size_t tables = pack.step_count * 4 + pack.native_only_count * 2 + pack.frame_count * 12;
+  size_t cursor = v2 ? records + (size_t)anim_count * 8 : kHeaderSize;
+  pack.map_count = map_count;
+  const size_t tables = pack.step_count * 4 + pack.native_only_count * 2 + map_count * 4 +
+                        pack.frame_count * 12;
   if (tables > size - cursor) return Invalid("truncated tables");
   pack.steps = (HdStep *)calloc(pack.step_count, sizeof *pack.steps);
   pack.native_only = (uint16_t *)calloc(pack.native_only_count ? pack.native_only_count : 1,
                                         sizeof *pack.native_only);
   pack.frames = (HdFrame *)calloc(pack.frame_count, sizeof *pack.frames);
+  pack.map = (uint16_t (*)[2])calloc(map_count ? map_count : 1, sizeof *pack.map);
   pack.data = (uint8_t *)malloc(size);
-  if (!pack.steps || !pack.native_only || !pack.frames || !pack.data) {
+  if (!pack.steps || !pack.native_only || !pack.frames || !pack.map || !pack.data) {
     FreePack(&pack);
     return Invalid("out of memory");
   }
@@ -148,6 +182,14 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
   }
   for (size_t i = 0; i < pack.native_only_count; ++i, cursor += 2)
     pack.native_only[i] = Read16(bytes + cursor);
+  for (size_t i = 0; i < map_count; ++i, cursor += 4) {
+    pack.map[i][0] = Read16(bytes + cursor);
+    pack.map[i][1] = Read16(bytes + cursor + 2);
+    if (pack.map[i][1] >= kDkc2HdAnimCount) {
+      FreePack(&pack);
+      return Invalid("map names an unknown animation slot");
+    }
+  }
   for (size_t i = 0; i < pack.frame_count; ++i, cursor += 12) {
     HdFrame *f = &pack.frames[i];
     f->width = Read16(bytes + cursor);
@@ -166,8 +208,12 @@ bool Dkc2HdLoadBytes(const uint8_t *bytes, size_t size) {
   FreePack(&s_pack);
   s_pack = pack;
   memset(s_motion, 0, sizeof s_motion);
-  (void)snprintf(s_status, sizeof s_status, "HD pack loaded: %zu frames, scale %.2f",
-                 pack.frame_count, pack.scale);
+  memset(s_show, 0, sizeof s_show);
+  unsigned slots = 0;
+  for (unsigned a = 0; a < kDkc2HdAnimCount; ++a) slots += s_pack.animations[a].count != 0;
+  (void)snprintf(s_status, sizeof s_status,
+                 "HD pack loaded: %zu frames, %u animations, scale %.2f",
+                 pack.frame_count, slots, pack.scale);
   return true;
 }
 
@@ -213,6 +259,10 @@ void Dkc2HdInitialize(void) {
   const char *scale = getenv("DKC2_HD_SCALE");
   const float value = scale ? (float)atof(scale) : 0.0f;
   if (value >= 0.25f && value <= 16.0f) s_pack.scale = value;
+  const char *style = getenv("DKC2_HD_STYLE");
+  if (style && *style) Dkc2HdSetStyle(Dkc2HdStyleFromName(style));
+  const char *size = getenv("DKC2_HD_SIZE");
+  if (size && *size) Dkc2HdSetSize((float)atof(size) / 100.0f);
   const char *flip = getenv("DKC2_HD_FLIP");
   if (flip && flip[0] == '1') s_pack.flags ^= kDkc2HdFlagFacesLeft;
   const char *replace = getenv("DKC2_HD_REPLACE");
@@ -231,7 +281,30 @@ bool Dkc2HdReplaces(unsigned who) {
   return (s_pack.flags & (who ? kDkc2HdFlagReplaceDixie : kDkc2HdFlagReplaceDiddy)) != 0;
 }
 
+static int MappedSlot(unsigned animation) {
+  for (size_t i = 0; i < s_pack.map_count; ++i)
+    if (s_pack.map[i][0] == animation && s_pack.animations[s_pack.map[i][1]].count)
+      return s_pack.map[i][1];
+  return -1;
+}
+
+static bool IsHurtState(unsigned state) {
+  return state == 0x24 || state == 0x25 || state == 0x59;
+}
+
+bool Dkc2HdHasRide(void) {
+  return Dkc2HdEnabled() && s_pack.animations[kDkc2HdRide].count != 0;
+}
+
+bool Dkc2HdHasCarry(void) {
+  return Dkc2HdEnabled() && (s_pack.animations[kDkc2HdCarryIdle].count ||
+                             s_pack.animations[kDkc2HdCarryWalk].count);
+}
+
 bool Dkc2HdAllowsState(unsigned animation, unsigned state) {
+  /* A pose the pack maps or a hurt pose it carries wins over the defaults. */
+  if (MappedSlot(animation) >= 0) return true;
+  if (IsHurtState(state) && s_pack.animations[kDkc2HdHurt].count) return true;
   /* Knocked out, barrel, carried, thrown and rope-transition states keep
    * the native art; the pack has no matching poses. */
   switch (state) {
@@ -280,6 +353,10 @@ static int Resolve(int animation) {
   if (s_pack.animations[animation].count) return animation;
   switch (animation) {
     case kDkc2HdRun: return Resolve(kDkc2HdWalk);
+    case kDkc2HdCarryWalk: return Resolve(kDkc2HdCarryIdle);
+    case kDkc2HdClimbMove: return Resolve(kDkc2HdClimbIdle);
+    case kDkc2HdClimbDown: return Resolve(kDkc2HdClimbMove);
+    case kDkc2HdHang: return Resolve(kDkc2HdClimbIdle);
     case kDkc2HdFall: return s_pack.animations[kDkc2HdJump].count ? kDkc2HdJump : kDkc2HdIdle;
     default: return kDkc2HdIdle;
   }
@@ -300,9 +377,34 @@ static const HdFrame *FrameAt(int animation, uint32_t elapsed) {
   return &s_pack.frames[s_pack.steps[a->first + a->count - 1].frame];
 }
 
+static uint32_t Duration(int animation) {
+  const HdAnimation *a = &s_pack.animations[animation];
+  uint32_t total = 0;
+  for (unsigned i = 0; i < a->count; ++i) total += s_pack.steps[a->first + i].duration;
+  return total;
+}
+
+static bool IsFidget(int animation) {
+  return animation == kDkc2HdFidget || animation == kDkc2HdFidget2 ||
+         animation == kDkc2HdFidget3;
+}
+
+/* The fidget slots the pack carries take turns. */
+static int NextFidget(HdShow *show) {
+  static const int kFidgets[3] = {kDkc2HdFidget, kDkc2HdFidget2, kDkc2HdFidget3};
+  for (unsigned i = 0; i < 3; ++i) {
+    const unsigned turn = (show->fidget_turn + i) % 3;
+    if (s_pack.animations[kFidgets[turn]].count) {
+      show->fidget_turn = (turn + 1) % 3;
+      return kFidgets[turn];
+    }
+  }
+  return -1;
+}
+
 void Dkc2HdBeginFrame(uint32_t tick) {
   for (unsigned a = 0; a < 2; ++a) {
-    if (!s_actors[a].active) s_motion[a].valid = false;
+    if (!s_actors[a].active) s_motion[a].valid = s_show[a].valid = false;
     s_actors[a].active = s_actors[a].placed = false;
   }
   memset(s_owned, 0, sizeof s_owned);
@@ -322,11 +424,46 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
   else memset(actor->slots, 0, sizeof actor->slots);
   for (unsigned i = 0; i < 128; ++i)
     if (actor->slots[i]) s_owned[i] = 1;
-  const int previous = s_motion[who].animation;
-  const int animation = Dkc2HdClassify(&s_motion[who], input->world_x, input->world_y,
-                                       input->grounded, input->rising, s_tick);
+  HdShow *show = &s_show[who];
+  const int previous = show->valid ? show->animation : -1;
+  const unsigned previous_native = show->native;
+  const int moving = Dkc2HdClassify(&s_motion[who], input->world_x, input->world_y,
+                                    input->grounded, input->rising, s_tick);
+  if (!show->valid) {
+    show->valid = true;
+    show->animation = -1;
+    show->idle_since = s_tick;
+  }
+  /* A finished fidget restarts the wait before the next one. */
+  if (IsFidget(show->animation) && s_tick - show->since >= Duration(show->animation))
+    show->idle_since = s_tick;
+  /* Priority: riding, the pack's map for this native animation, a hurt
+   * pose, the carry poses, a fidget after standing still, then motion. */
+  int animation = input->riding && Dkc2HdHasRide() ? kDkc2HdRide : -1;
+  if (animation < 0) animation = MappedSlot(input->animation);
+  if (animation < 0 && IsHurtState(input->state) && s_pack.animations[kDkc2HdHurt].count)
+    animation = kDkc2HdHurt;
+  if (animation < 0 && input->carrying && Dkc2HdHasCarry())
+    animation = moving == kDkc2HdWalk || moving == kDkc2HdRun ? kDkc2HdCarryWalk
+                                                              : kDkc2HdCarryIdle;
+  if (animation < 0 && moving == kDkc2HdIdle) {
+    if (IsFidget(show->animation) && s_tick - show->since < Duration(show->animation))
+      animation = show->animation;
+    else if (s_tick - show->idle_since >= kFidgetDelay)
+      animation = NextFidget(show);
+  }
+  if (animation < 0) animation = moving;
+  if (animation != kDkc2HdIdle && !IsFidget(animation)) show->idle_since = s_tick;
+  if (animation != show->animation) {
+    /* Motion classes keep the classifier's clock; other slots start now. */
+    const bool both_motion = animation < kDkc2HdBasicAnimCount &&
+                             show->animation >= 0 && show->animation < kDkc2HdBasicAnimCount;
+    show->since = both_motion ? s_motion[who].started : s_tick;
+    show->animation = animation;
+  }
+  show->native = input->animation;
   const int resolved = Resolve(animation);
-  uint32_t elapsed = s_tick - s_motion[who].started;
+  uint32_t elapsed = s_tick - show->since;
   if (resolved == kDkc2HdWalk && animation == kDkc2HdRun)
     elapsed = elapsed * 8 / 5; /* no run clip: a faster walk */
   if (resolved == kDkc2HdJump && animation == kDkc2HdFall)
@@ -339,9 +476,11 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
     s_trace_checked = true;
     s_trace = getenv("DKC2_HD_TRACE") != NULL;
   }
-  if (s_trace && previous != s_motion[who].animation)
-    fprintf(stderr, "hd who=%u class=%d grounded=%d rising=%d x=%d y=%d\n", who,
-            s_motion[who].animation, input->grounded, input->rising, input->world_x, input->world_y);
+  /* The trace also lists native animation IDs, to grow the pack's map. */
+  if (s_trace && (previous != show->animation || previous_native != input->animation))
+    fprintf(stderr, "hd who=%u slot=%d native=0x%02X state=0x%02X carrying=%d grounded=%d rising=%d x=%d y=%d\n",
+            who, show->animation, input->animation, input->state, input->carrying,
+            input->grounded, input->rising, input->world_x, input->world_y);
 }
 
 bool Dkc2HdOwnsSlot(unsigned slot) {
@@ -351,7 +490,7 @@ bool Dkc2HdOwnsSlot(unsigned slot) {
 static void Place(HdActor *actor, const Ppu *ppu) {
   if (actor->placed || !actor->frame) return;
   const HdFrame *f = actor->frame;
-  const float scale = s_pack.scale;
+  const float scale = EffectiveScale();
   const bool art_left = (s_pack.flags & kDkc2HdFlagFacesLeft) != 0;
   const bool native_flip = (actor->input.properties & 0x4000) != 0;
   actor->flip = native_flip != art_left;
@@ -388,6 +527,156 @@ void Dkc2HdObserveMainLine(const Ppu *ppu, unsigned line) {
   }
 }
 
+/* ---- Presentation styles: run on the composited frame, never on the pack. */
+
+static bool Scratch(size_t bytes) {
+  if (s_tmp_capacity >= bytes) return true;
+  uint8_t *grown = (uint8_t *)realloc(s_tmp, bytes);
+  if (!grown) return false;
+  s_tmp = grown;
+  s_tmp_capacity = bytes;
+  return true;
+}
+
+/* 1-2-1 blur of premultiplied colour, horizontally then vertically. */
+static void Soften(uint8_t *px, unsigned w, unsigned h) {
+  if (!Scratch((size_t)w * h * 4)) return;
+  for (int pass = 0; pass < 2; ++pass) {
+    const uint8_t *src = px;
+    uint8_t *dst = s_tmp;
+    for (unsigned y = 0; y < h; ++y) {
+      for (unsigned x = 0; x < w; ++x) {
+        unsigned acc[4] = {0, 0, 0, 0}, total = 0;
+        for (int d = -1; d <= 1; ++d) {
+          const int sx = pass == 0 ? (int)x + d : (int)x;
+          const int sy = pass == 0 ? (int)y : (int)y + d;
+          if (sx < 0 || sy < 0 || sx >= (int)w || sy >= (int)h) continue;
+          const uint8_t *p = src + ((size_t)sy * w + (size_t)sx) * 4;
+          const unsigned weight = d == 0 ? 2 : 1;
+          for (int c = 0; c < 3; ++c) acc[c] += (unsigned)p[c] * p[3] / 255 * weight;
+          acc[3] += (unsigned)p[3] * weight;
+          total += weight;
+        }
+        uint8_t *o = dst + ((size_t)y * w + x) * 4;
+        const unsigned alpha = acc[3] / total;
+        for (int c = 0; c < 3; ++c) {
+          const unsigned premul = acc[c] / total;
+          o[c] = (uint8_t)(alpha ? (premul * 255 / alpha > 255 ? 255 : premul * 255 / alpha) : 0);
+        }
+        o[3] = (uint8_t)alpha;
+      }
+    }
+    memcpy(px, s_tmp, (size_t)w * h * 4);
+  }
+}
+
+static void Saturate(uint8_t *px, size_t count, float amount) {
+  for (size_t i = 0; i < count; ++i, px += 4) {
+    const float grey = 0.299f * px[0] + 0.587f * px[1] + 0.114f * px[2];
+    for (int c = 0; c < 3; ++c) {
+      float v = grey + (px[c] - grey) * amount;
+      px[c] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    }
+  }
+}
+
+/* SNES look: blocks of `block` HD pixels, 15-bit colour, hard alpha and a
+ * one-block dark outline. */
+static void Retro(uint8_t *px, unsigned w, unsigned h, unsigned block) {
+  if (block < 1) block = 1;
+  const unsigned bw = (w + block - 1) / block, bh = (h + block - 1) / block;
+  if (!Scratch((size_t)bw * bh * 4)) return;
+  uint8_t *cells = s_tmp;
+  for (unsigned by = 0; by < bh; ++by) {
+    for (unsigned bx = 0; bx < bw; ++bx) {
+      unsigned acc[4] = {0, 0, 0, 0}, n = 0;
+      for (unsigned y = by * block; y < (by + 1) * block && y < h; ++y)
+        for (unsigned x = bx * block; x < (bx + 1) * block && x < w; ++x) {
+          const uint8_t *p = px + ((size_t)y * w + x) * 4;
+          for (int c = 0; c < 3; ++c) acc[c] += (unsigned)p[c] * p[3];
+          acc[3] += p[3];
+          ++n;
+        }
+      uint8_t *cell = cells + ((size_t)by * bw + bx) * 4;
+      const bool solid = n && acc[3] / n >= 128;
+      for (int c = 0; c < 3; ++c) {
+        const unsigned v = acc[3] ? acc[c] / acc[3] : 0;
+        cell[c] = (uint8_t)((v & 0xF8) | (v >> 5)); /* 5 bits per channel */
+      }
+      cell[3] = solid ? 255 : 0;
+    }
+  }
+  /* Outline: an empty cell touching a solid one becomes dark brown. */
+  for (unsigned by = 0; by < bh; ++by)
+    for (unsigned bx = 0; bx < bw; ++bx) {
+      uint8_t *cell = cells + ((size_t)by * bw + bx) * 4;
+      if (cell[3] == 255) continue;
+      static const int d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+      for (int k = 0; k < 4; ++k) {
+        const int nx = (int)bx + d[k][0], ny = (int)by + d[k][1];
+        if (nx < 0 || ny < 0 || nx >= (int)bw || ny >= (int)bh) continue;
+        const uint8_t *nb = cells + ((size_t)ny * bw + (size_t)nx) * 4;
+        if (nb[3] == 255) {
+          cell[0] = 24; cell[1] = 16; cell[2] = 8; cell[3] = 254; /* not a neighbour source */
+          break;
+        }
+      }
+    }
+  for (unsigned y = 0; y < h; ++y)
+    for (unsigned x = 0; x < w; ++x) {
+      uint8_t *p = px + ((size_t)y * w + x) * 4;
+      const uint8_t *cell = cells + ((size_t)(y / block) * bw + x / block) * 4;
+      memcpy(p, cell, 4);
+      if (p[3] == 254) p[3] = 255;
+    }
+}
+
+/* Darkens the HD rows that fall between the native scanlines, so the
+ * character shares the CRT pass's line structure. */
+static void Scanlines(uint8_t *px, unsigned w, unsigned h, float top, float scale) {
+  const float inv = 1.0f / scale;
+  for (unsigned y = 0; y < h; ++y) {
+    const float ny = top + ((float)y + 0.5f) * inv;
+    const float frac = ny - floorf(ny);
+    if (frac < 0.55f) continue;
+    uint8_t *p = px + (size_t)y * w * 4;
+    for (unsigned x = 0; x < w; ++x, p += 4)
+      for (int c = 0; c < 3; ++c) p[c] = (uint8_t)(p[c] * 0.68f);
+  }
+}
+
+static void ApplyStyle(uint8_t *px, unsigned w, unsigned h, float top, float scale) {
+  switch (s_style) {
+    case kDkc2HdStyleSoft:
+      Soften(px, w, h);
+      Saturate(px, (size_t)w * h, 0.9f);
+      break;
+    case kDkc2HdStyleRetro:
+      Retro(px, w, h, (unsigned)(scale / 2.0f + 0.5f));
+      break;
+    case kDkc2HdStyleCrt:
+      Soften(px, w, h);
+      Scanlines(px, w, h, top, scale);
+      break;
+    default:
+      break;
+  }
+}
+
+void Dkc2HdSetStyle(int style) {
+  s_style = style >= kDkc2HdStyleHd && style < kDkc2HdStyleCount ? style : kDkc2HdStyleHd;
+}
+int Dkc2HdStyle(void) { return s_style; }
+void Dkc2HdSetSize(float size) { s_size = size >= 0.5f && size <= 2.0f ? size : 1.0f; }
+float Dkc2HdSize(void) { return s_size; }
+
+int Dkc2HdStyleFromName(const char *name) {
+  static const char *const names[kDkc2HdStyleCount] = {"hd", "doux", "retro", "crt"};
+  for (int i = 0; name && i < kDkc2HdStyleCount; ++i)
+    if (strcmp(name, names[i]) == 0) return i;
+  return kDkc2HdStyleHd;
+}
+
 void Dkc2HdFinishFrame(const Ppu *ppu) {
   s_sprite_count = 0;
   if (!ppu || (ppu->inidisp & 0x80)) return;
@@ -405,7 +694,7 @@ void Dkc2HdFinishFrame(const Ppu *ppu) {
       s_out[a] = grown;
       s_out_capacity[a] = needed;
     }
-    const float inv = 1.0f / s_pack.scale;
+    const float inv = 1.0f / EffectiveScale();
     for (unsigned v = 0; v < f->height; ++v) {
       const int ny = (int)floorf(actor->top + ((float)v + 0.5f) * inv);
       const bool row_ok = ny >= 0 && ny < 224;
@@ -422,6 +711,7 @@ void Dkc2HdFinishFrame(const Ppu *ppu) {
         dst[3] = visible ? src[3] : 0;
       }
     }
+    ApplyStyle(s_out[a], f->width, f->height, actor->top, EffectiveScale());
     Dkc2OverlaySprite *sprite = &s_sprites[s_sprite_count++];
     sprite->rgba = s_out[a];
     sprite->width = f->width;
@@ -445,5 +735,5 @@ unsigned Dkc2HdActiveActors(void) {
 }
 
 int Dkc2HdActorAnimation(unsigned who) {
-  return who < 2 && s_actors[who].active ? s_motion[who].animation : -1;
+  return who < 2 && s_actors[who].active ? s_show[who].animation : -1;
 }

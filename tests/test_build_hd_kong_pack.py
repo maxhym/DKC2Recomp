@@ -71,6 +71,61 @@ class BuildHdKongPackTests(unittest.TestCase):
             self.assertEqual(data[offset:offset + 4], bytes((0, 0, 255, 255)))
             self.assertEqual(len(data), offset + 64)
 
+    def test_transparent_borders_are_cropped_and_anchor_follows(self):
+        # 5x4 frame, one opaque pixel at (3, 1) and one at (1, 2).
+        rgba = bytearray(5 * 4 * 4)
+        for x, y in ((3, 1), (1, 2)):
+            rgba[(y * 5 + x) * 4:(y * 5 + x) * 4 + 4] = bytes((9, 8, 7, 255))
+        x0, y0, w, h, out = pack.crop_transparent(5, 4, bytes(rgba))
+        self.assertEqual((x0, y0, w, h), (1, 1, 3, 2))
+        self.assertEqual(out[(0 * 3 + 2) * 4:(0 * 3 + 2) * 4 + 4], bytes((9, 8, 7, 255)))
+        self.assertEqual(out[(1 * 3 + 0) * 4:(1 * 3 + 0) * 4 + 4], bytes((9, 8, 7, 255)))
+        self.assertEqual(pack.crop_transparent(2, 2, bytes(16))[2:4], (1, 1))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "idle").mkdir()
+            path = root / "idle/0.png"
+            rows = b"".join(b"\x00" + bytes(rgba[y * 20:(y + 1) * 20]) for y in range(4))
+
+            def chunk(kind, body):
+                return struct.pack(">I", len(body)) + kind + body + \
+                    struct.pack(">I", zlib.crc32(kind + body))
+            path.write_bytes(b"\x89PNG\r\n\x1a\n" +
+                             chunk(b"IHDR", struct.pack(">IIBBBBB", 5, 4, 8, 6, 0, 0, 0)) +
+                             chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+            (root / "pack.json").write_text(json.dumps({
+                "anchor": [2, 3], "animations": {"idle": {"frames": [["idle/0.png", 1]]}}}))
+            data, _, _ = pack.build(root)
+            table = 64 + 4
+            self.assertEqual(struct.unpack_from("<HHhh", data, table), (3, 2, 1, 2))
+
+    def test_extended_slots_and_map_use_v2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_png(root / "a.png", 2, 2, (9, 9, 9, 255))
+            (root / "pack.json").write_text(json.dumps({
+                "animationIds": {"climb_idle": [47, 54], "roll": [12]},
+                "animations": {
+                    "idle": {"frames": [["a.png", 4]]},
+                    "roll": {"frames": [["a.png", 2], ["a.png", 2]]},
+                    "climb_idle": {"frames": [["a.png", 6]]},
+                }}))
+            data, frames, steps = pack.build(root)
+            self.assertEqual(data[:8], b"DKC2HD02")
+            anims, maps = struct.unpack_from("<HH", data, 22)
+            self.assertEqual(anims, pack.ANIMATIONS.index("climb_idle") + 1)
+            self.assertEqual(maps, 3)
+            roll = struct.unpack_from("<HHHH", data, 32 + pack.ANIMATIONS.index("roll") * 8)
+            climb = struct.unpack_from("<HHHH", data, 32 + pack.ANIMATIONS.index("climb_idle") * 8)
+            self.assertEqual((roll[1], roll[2]), (2, 0))
+            self.assertEqual((climb[1], climb[2]), (1, 1))
+            map_at = 32 + anims * 8 + steps * 4
+            self.assertEqual(struct.unpack_from("<HH", data, map_at), (47, pack.ANIMATIONS.index("climb_idle")))
+            (root / "pack.json").write_text(json.dumps({
+                "animationIds": {"dance": [1]}, "animations": {"idle": {"frames": [["a.png", 1]]}}}))
+            with self.assertRaises(ValueError):
+                pack.build(root)
+
     def test_rejects_bad_specs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -88,9 +143,13 @@ class BuildHdKongPackTests(unittest.TestCase):
             self.skipTest("Mandro frames are not present")
         data, frames, steps = pack.build(source)
         self.assertGreater(frames, 50)
-        for name in ("idle", "walk", "run", "jump", "fall"):
+        spec = json.loads((source / "pack.json").read_text(encoding="utf-8"))
+        records = 32 if data[:8] == b"DKC2HD02" else 24
+        count = struct.unpack_from("<H", data, 22)[0] if records == 32 else 5
+        for name in spec["animations"]:
             index = pack.ANIMATIONS.index(name)
-            self.assertGreater(struct.unpack_from("<HHHH", data, 24 + index * 8)[1], 0, name)
+            self.assertLess(index, count, name)
+            self.assertGreater(struct.unpack_from("<HHHH", data, records + index * 8)[1], 0, name)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Mandro's pack now carries a lively idle, three fidgets that take turns, a
+  roll, carry poses, rope hang/climb up/climb down, horizontal rope, swim,
+  hit, riding, victory and throw (674 frames, 48 MB). The engine adds
+  `fidget2`, `fidget3`, `hang` and `climb_down` slots, draws the `ride` pose
+  for the rider on an animal instead of the native Kong, and starts a fidget
+  after 5 s instead of 7. Rope IDs are mapped; roll, swim, victory and throw
+  still need their native IDs.
+- The HD pack builder trims transparent frame borders (Mandro's pack drops
+  from 42 MB to 14 MB, same placement), and the frame extractor takes extra
+  slots with `--clip NAME=PATH[@options]` and `--merge`.
+- HD Kong packs can carry more animations (pack format DKC2HD02): fidget,
+  roll, carry, climb, swim, hurt, ride, victory and throw, selected from a
+  map of native animation IDs, the knock-out states or the held object.
+  Fidgets play after a while standing still. The trace now lists native
+  animation IDs to extend the map.
+- HD Kong styles and size, applied at run time without touching the pack:
+  `DKC2_HD_STYLE` (hd, doux, retro with 15-bit colour, coarser pixels and an
+  outline, crt with native-scanline shading) and `DKC2_HD_SIZE` (percent).
 - Added an experimental HD replacement Kong. An original character pack
   (`mods/mandro-hd`, Mandro the mandrill) is built beside the desktop hosts
   and drawn over Diddy's slot at window resolution through the OpenGL
