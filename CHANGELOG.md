@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Added an experimental HD replacement Kong. An original character pack
+  (`mods/mandro-hd`, Mandro the mandrill) is built beside the desktop hosts
+  and drawn over Diddy's slot at window resolution through the OpenGL
+  pipeline, with per-pixel occlusion by higher-priority layers and master
+  brightness. Uncovered moments (animals, hurt, carrying, team-up, listed
+  animations) keep the native sprite. F8 toggles it; `DKC2_HD_*` variables
+  tune offset, scale, facing and slots. Synthetic tests cover the pack format,
+  classifier and compositing; in-game placement is not yet verified.
+
+- Added an optional, read-only telemetry bridge for the DKCountry launcher.
+  When `DKCOUNTRY_TELEMETRY` names a file, the desktop, SDL and headless hosts
+  append protocol-1 JSON lines (levels, bananas, coins, animals, Kong
+  knockouts, distance, stomps, state loads). Without the variable nothing is
+  opened. Synthetic unit tests cover decoding, demo silence and rejection of
+  file-load jumps; validation against the private ROM is still pending.
+
 ## 0.0.8 (alpha) - 2026-09-13
 
 - Fixed Player 2 grabbing ropes in simultaneous TEAM mode. Rope reactions now

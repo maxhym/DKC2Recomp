@@ -864,6 +864,75 @@ static bool RenderCrt(Dkc2SdlPresenter *presenter, int source_width,
 /* Clear the framebuffer and draw the frame into its viewport with the
  * display in effect. Shared by the window and the capture, so both show
  * the same chain. */
+static Dkc2OverlaySpriteSource s_sprite_source;
+static GLuint s_sprite_textures[2];
+static uint32_t s_sprite_serials[2];
+
+void Dkc2GlPipelineSetSpriteSource(Dkc2OverlaySpriteSource source) {
+  s_sprite_source = source;
+}
+
+/* Draws the HD sprites in the game viewport, after the game image. Pixels
+ * that game layers cover were already made transparent by the producer, so
+ * plain alpha blending keeps foreground scenery and the HUD in front. */
+static void DrawOverlaySprites(int source_width, int source_height,
+                               const Dkc2DesktopViewport *viewport,
+                               int output_height) {
+  if (!s_sprite_source || source_width <= 0 || source_height <= 0) return;
+  const Dkc2OverlaySprite *sprites = NULL;
+  int count = s_sprite_source(&sprites);
+  if (count <= 0 || !sprites) return;
+  if (count > 2) count = 2;
+  glViewport(viewport->x, output_height - viewport->y - viewport->height,
+             viewport->width, viewport->height);
+  glMatrixMode(GL_PROJECTION);
+  glLoadIdentity();
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+  glEnable(GL_TEXTURE_2D);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+  for (int i = 0; i < count; ++i) {
+    const Dkc2OverlaySprite *sprite = &sprites[i];
+    if (!sprite->rgba || sprite->width <= 0 || sprite->height <= 0) continue;
+    if (!s_sprite_textures[i]) {
+      glGenTextures(1, &s_sprite_textures[i]);
+      s_sprite_serials[i] = 0;
+    }
+    if (!s_sprite_textures[i]) continue;
+    glBindTexture(GL_TEXTURE_2D, s_sprite_textures[i]);
+    if (s_sprite_serials[i] != sprite->serial) {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sprite->width, sprite->height, 0,
+                   GL_RGBA, GL_UNSIGNED_BYTE, sprite->rgba);
+      s_sprite_serials[i] = sprite->serial;
+    }
+    const float x0 = -1.0f + 2.0f * sprite->x / (float)source_width;
+    const float x1 = -1.0f + 2.0f * (sprite->x + sprite->w) / (float)source_width;
+    const float y0 = 1.0f - 2.0f * sprite->y / (float)source_height;
+    const float y1 = 1.0f - 2.0f * (sprite->y + sprite->h) / (float)source_height;
+    glColor4f(sprite->brightness, sprite->brightness, sprite->brightness, 1.0f);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f);
+    glVertex2f(x0, y0);
+    glTexCoord2f(1.0f, 0.0f);
+    glVertex2f(x1, y0);
+    glTexCoord2f(1.0f, 1.0f);
+    glVertex2f(x1, y1);
+    glTexCoord2f(0.0f, 1.0f);
+    glVertex2f(x0, y1);
+    glEnd();
+  }
+  glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+  glDisable(GL_BLEND);
+  glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 void Dkc2GlPipelineRender(Dkc2SdlPresenter *presenter, GLuint final_fbo,
                         int source_width, int source_height,
                         int output_width, int output_height,
@@ -874,8 +943,11 @@ void Dkc2GlPipelineRender(Dkc2SdlPresenter *presenter, GLuint final_fbo,
   glClear(GL_COLOR_BUFFER_BIT);
   if (presenter->display == kDkc2DisplayCrt &&
       RenderCrt(presenter, source_width, source_height, viewport,
-                output_height, final_fbo))
+                output_height, final_fbo)) {
+    DrawOverlaySprites(source_width, source_height, viewport, output_height);
+    glBindTexture(GL_TEXTURE_2D, presenter->texture);
     return;
+  }
   if (presenter->display == kDkc2DisplayCrt) {
     /* The targets could not be built: report once and stay flat. */
     presenter->display = kDkc2DisplayFlat;
@@ -885,6 +957,8 @@ void Dkc2GlPipelineRender(Dkc2SdlPresenter *presenter, GLuint final_fbo,
   }
   RenderFlat(presenter, source_width, source_height, viewport,
              output_height);
+  DrawOverlaySprites(source_width, source_height, viewport, output_height);
+  glBindTexture(GL_TEXTURE_2D, presenter->texture);
 }
 
 bool Dkc2SdlPresenterPresent(Dkc2SdlPresenter *presenter,
@@ -1036,6 +1110,11 @@ bool Dkc2SdlPresenterUsesSoftwarePacing(
 
 void Dkc2GlPipelineDestroy(Dkc2SdlPresenter *presenter) {
   if (!presenter) return;
+  for (int i = 0; i < 2; ++i) {
+    if (s_sprite_textures[i]) glDeleteTextures(1, &s_sprite_textures[i]);
+    s_sprite_textures[i] = 0;
+    s_sprite_serials[i] = 0;
+  }
   DestroyCrtTargets(presenter);
   for (int pass = 0; pass < kDkc2CrtPassCount; pass++) {
     if (presenter->crt_program[pass]) s_gl.DeleteProgram(presenter->crt_program[pass]);

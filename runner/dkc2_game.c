@@ -1,5 +1,7 @@
 #include "dkc2_game.h"
 #include "dkc2_coop.h"
+#include "dkc2_telemetry.h"
+#include "dkc2_hd.h"
 #include "dkc2_hdma.h"
 #include "dkc2_kongs.h"
 #include "dkc2_music.h"
@@ -401,6 +403,8 @@ static void Dkc2RunOneFrame(void) {
   }
   s_next_frame_master += kDkc2NtscFrameMasterClocks;
   Dkc2MusicFrame(g_snes->apu, g_rom, 0x400000, g_ram);
+  /* Read-only; inert unless the DKCountry launcher requested telemetry. */
+  Dkc2TelemetryHostFrame(g_ram, (uint64_t)snes_frame_counter);
 }
 
 static void Dkc2SaveExtra(SaveLoadInfo *sli) {
@@ -461,6 +465,7 @@ static void Dkc2OnStateLoaded(uint32_t version) {
   s_bias_valid = false;
   s_state_loaded_recently = !getenv("DKC2_LOAD_AS_LEVEL_START");
   Dkc2VideoSetTerrainReady(false);
+  Dkc2TelemetryHostStateLoaded();
 }
 
 static const RtlGameInfo kDkc2GameInfo = {
@@ -2400,6 +2405,8 @@ void Dkc2DrawPpuFrame(void) {
       if (active[channel]) SimpleHdma_DoLine(&channels[channel]);
     }
   }
+  /* Presentation only: cut the HD Kongs against this frame's occluders. */
+  Dkc2HdFinishFrame(g_ppu);
   if (band_policies_active) {
     for (unsigned layer = 0; layer < 3; layer++) {
       PpuSetWidescreenLayerRepeatBand(g_ppu, (uint8_t)layer, 0, 0);

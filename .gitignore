@@ -56,3 +56,6 @@ tier2_coverage.json
 # alongside the legacy fixed name.
 tier2_*.json
 tier2_*.jsonl
+
+# Original HD character art (not game content) is source material.
+!/mods/**/*.png

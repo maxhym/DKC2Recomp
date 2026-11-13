@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "desktop_crt.h"
+#include "dkc2_sprite_overlay.h"
 #include "desktop_viewport.h"
 #include "desktop_vsync.h"
 
@@ -91,6 +92,9 @@ typedef void (*Dkc2SdlOverlayDraw)(void *user, int width, int height);
  * these entry points never create/destroy a window, context or source texture. */
 typedef void *(*Dkc2GlProcLoader)(const char *name);
 void Dkc2GlPipelineInitialize(Dkc2SdlPresenter *presenter, Dkc2GlProcLoader load);
+/* Optional host-resolution sprites drawn over the game image by every
+ * pipeline path (flat, Reconstruct and CRT). NULL disables them. */
+void Dkc2GlPipelineSetSpriteSource(Dkc2OverlaySpriteSource source);
 void Dkc2GlPipelineDestroy(Dkc2SdlPresenter *presenter);
 bool Dkc2GlPipelineCrtAvailable(const Dkc2SdlPresenter *presenter);
 void Dkc2GlPipelineRender(Dkc2SdlPresenter *presenter, unsigned int final_fbo,

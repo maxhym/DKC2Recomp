@@ -95,6 +95,13 @@ as described in [Project Kongs](docs/PROJECT_KONGS.md). Choices and pack paths
 persist in `kongs.cfg`. Original slot collision sizes and some movement rules
 remain; this is not a full DKC1/DKC3 move-set transplant.
 
+**HD character (experimental).** The desktop builds also pack *Mandro*, an
+original high-resolution mandrill, beside the executable. He replaces Diddy's
+sprite at window resolution (not SNES resolution) while gameplay stays
+native; press **F8** to compare with the original sprite. Placement can be
+tuned with environment variables; see [HD replacement Kong](docs/HD_KONGS.md).
+Set `DKC2_HD=0` to disable it.
+
 Under **Settings > Audio**, choose an extracted **MSU-1 music folder**, enable
 **Replacement music (MSU-1)** and adjust **Music volume**. Standard
 `dkc2_msu1-N.pcm` tracks replace music while original sound effects remain.
@@ -156,6 +163,16 @@ dynamic library, carries the project icon, is ad-hoc signed, and stores ROM
 selection, launcher settings, SRAM, save states, and diagnostics under
 `~/Library/Application Support/Flat2VR/DKC2Recomp`. The private ROM remains at
 its original path and is never copied into the application bundle.
+
+## DKCountry launcher telemetry
+
+The hosts can feed statistics and achievements to the separate DKCountry
+launcher. When the launcher starts the game it sets `DKCOUNTRY_TELEMETRY` to a
+file path; the game then appends one JSON line per event (levels, bananas,
+coins, animals, knockouts, distance, state loads). The bridge only reads
+memory after each frame and never changes the game. Without the variable it
+does nothing. Telemetry has not yet been validated against a full play
+session; see the roadmap.
 
 ## Supported ROM
 

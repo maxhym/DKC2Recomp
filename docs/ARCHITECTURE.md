@@ -1816,3 +1816,27 @@ Held-Kong ownership resolves from those guest selectors after save/load too.
 The state policy preserves the carrier's pickup wait and restores independent
 control and collision flags when a thrown partner has landed. Classic, solo
 and contest retain the original eligibility and state paths.
+
+## DKCountry telemetry bridge (2026-11-12)
+
+`runner/dkc2_telemetry.c` is a host-side observer with no dependency on the
+recompiler. `Dkc2TelemetryHostFrame` is called at the end of every frame from
+`dkc2_game.c`, so all hosts share it; it lazily opens the file named by
+`DKCOUNTRY_TELEMETRY` and is otherwise a no-op. The pure part
+(`Dkc2TelemetryStep`) turns two consecutive WRAM snapshots into protocol-1
+events through a sink callback, which is what the unit test drives. The
+protocol itself is owned by the DKCountry launcher repository
+(`docs/TELEMETRY_PROTOCOL.md`).
+
+## HD replacement Kong (2026-11-13)
+
+`runner/dkc2_hd.c` owns the HD pack, the motion classifier and the
+compositing; it depends only on the PPU structure. The data flow per frame
+is: `Dkc2KongsPrepare` (actor selection, `Dkc2HdSetActor`, OAM ownership) ->
+PPU lines (`Dkc2HdObserveMainLine` records occluded pixels) ->
+`Dkc2HdFinishFrame` from `dkc2_game.c` (CPU composite) -> presenter
+(`Dkc2GlPipelineSetSpriteSource(Dkc2HdSprites)`, one textured quad per
+replaced Kong after the CRT or flat pass). `runner/dkc2_sprite_overlay.h` is
+the only interface the presenters see, so other overlays can reuse it. See
+[HD_KONGS.md](HD_KONGS.md).
+

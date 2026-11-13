@@ -6371,3 +6371,70 @@ in the release notes. The feature baseline is the complete 86-test pass above.
 GitHub inspection found no newer Mac artifact than v0.0.6; the release carries
 that original archive and checksum, with its older feature coverage explicitly
 labelled. Source-only changes are committed; release archives stay outside Git.
+
+## 2026-11-12 - DKCountry telemetry bridge
+
+Added `runner/dkc2_telemetry.{c,h}` so the DKCountry launcher can build
+session statistics and achievements. The bridge runs after each completed
+frame (`Dkc2RunOneFrame`), reads WRAM only, and writes nothing unless the
+launcher sets `DKCOUNTRY_TELEMETRY`. The hosts also forward the post-frame
+stomp count they already consume for haptics, and a loaded state emits
+`state_load` and resets the comparison baseline.
+
+Fields come from addresses already validated in this repository: level
+`$00D3`, demo status `$05FB`, the BCD banana word `$096D` (co-op banana
+acceptance), Kremkoins `$08CC` and Banana Coins `$08CA` (save-record notes),
+ridden animal `$006E`, both-Kongs bit `$4000` of `$08C2`, leader `$0597` and
+the slot `$0DE2`/`$0E40` state and X words. A Kong entering one of the states
+the co-op layer already treats as losing that Kong (`$05`, `$24`, `$25`,
+`$59`) is a `hit` while the partner is present and a `death` otherwise.
+Banana and coin increases above 10 in one frame are treated as loads, and
+attract demos emit only ticks.
+
+Verification: `test_dkc2_telemetry` (synthetic WRAM and snapshots) passes;
+the full CTest run has 49 of 50 passing, the only failure being the
+pre-existing Linux link of `snesrecomp_interp_bridge` (missing `-lm`), which
+fails identically without this change. `dkc2_game.c` and `sdl_main.c` pass a
+GCC syntax check and `desktop_main.c` a MinGW one; the full hosts were not
+built because the generated sources need the private ROM. Unverified: the
+knockout-to-death mapping and pit deaths (a fall may not pass through those
+states), stomp counts outside simultaneous co-op (the existing counter only
+records them there), and behaviour over a real play session.
+
+## 2026-11-13 - HD replacement Kong (Mandro)
+
+Goal: replace a Kong with an original character drawn at higher resolution
+than the SNES sprite, without touching game logic. Downscaling generated art
+to the native sprite size was rejected because it removes the point of the
+higher-resolution art.
+
+Design: the host draws the character as a textured quad after the CRT/flat
+pass of `Dkc2GlPipelineRender`. To keep depth, the PPU line hook
+`Dkc2HdObserveMainLine` (a new `ProjectKongsPpu.cmake` patch after the
+main-screen `PpuDrawBackgrounds`) records, for each output pixel, whether a
+layer above the Kong's OBJ level (`priority * 4 + 2`) was drawn; those pixels
+of the HD frame are made transparent. The Kong's OAM slots are hidden through
+the existing Project Kongs `RenderOam`/`OamVisible` hooks, and the HD
+character only replaces moments the pack covers (idle, walk, run, jump,
+fall); riding, knockouts, carrying, team-up, handoff and listed animations
+fall back to the native sprite for that frame.
+
+Assets: Mandro was designed with an image model and animated from short
+side-view chroma-key clips. `scripts/extract_hd_kong_frames.py` keys, loops,
+aligns and scales them (161 frames on 256 px canvases, idle body 192 px, so
+about 4 HD pixels per SNES pixel); `scripts/build_hd_kong_pack.py` (standard
+library only) packs them as `mods/kong-hd.dkc2hd` after each desktop build.
+
+Verification: `test_dkc2_hd` (synthetic pack: loading and rejection,
+classifier, occlusion, priority, flip, brightness, forced blank, loop timing,
+F8 toggle) and `test_build_hd_kong_pack.py` pass, and `test_dkc2_hd` loads
+the real Mandro pack. The full CTest run has 51 of 52 passing; the only
+failure is the pre-existing `snesrecomp_interp_bridge` Linux link. The
+patched PPU copy compiles, `dkc2_hd.c` and `dkc2_kongs.c` compile with
+`-Werror`;
+`sdl_main.c` and `desktop_present_sdl.c` pass a GCC syntax check and
+`desktop_main.c` a MinGW one. Not verified, because the hosts need the
+private ROM: in-game placement and facing, the grounded/rising bits,
+which animation IDs still need to stay native, and frame pacing with the
+texture upload (one 256x256 upload per changed frame).
+

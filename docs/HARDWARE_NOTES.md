@@ -1333,3 +1333,20 @@ uses carrier state $13 during pickup, then $17/$18 while carrying. Drop uses
 reaction $06; a missed throw enters $1F flight then $21 waiting. Grounded
 $21 resumes independent control in simultaneous TEAM without changing the
 airborne trajectory or reintroducing the follower history teleport.
+
+## WRAM fields read by the DKCountry telemetry bridge
+
+| Address | Use | Source of confidence |
+|---|---|---|
+| `$00D3` | level identifier | semantic symbol database |
+| `$05FB` | attract-demo status; demos emit no gameplay events | semantic symbol database |
+| `$096D` | BCD banana counter, 0-99 | co-op banana acceptance |
+| `$08CC` / `$08CA` | Kremkoins / Banana Coins | save-record notes above |
+| `$006E` | ridden animal type (`$019C` in the Pirate Panic Rambi snapshot) | co-op animal checks |
+| `$08C2` bit `$4000` | both Kongs present | co-op lost-Kong recovery |
+| `$0597` | controlled Kong slot | co-op dispatch |
+| slot + `$2E` / `$06` | Kong state and X for slots `$0DE2`, `$0E40` | co-op state dispatch |
+
+The knockout states `$05`, `$24`, `$25` and `$59` are the ones the co-op layer
+records as a lost Kong. Whether every death (in particular falling into a
+pit) passes through one of them has not been verified on the private ROM.

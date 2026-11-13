@@ -11,6 +11,10 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+# The DKCountry telemetry bridge reports the port version in its hello line.
+set_source_files_properties(runner/dkc2_telemetry.c PROPERTIES
+    COMPILE_DEFINITIONS DKC2_TELEMETRY_BUILD="${PROJECT_VERSION}")
+
 set(DKC2_ROM "" CACHE FILEPATH "Private path to a headerless DKC2 USA v1.0 ROM")
 set(DKC2_COOP_ROPE_STATE "" CACHE FILEPATH "External Topsail Trouble rope regression snapshot")
 set(DKC2_COOP_ROPE_JUNCTION_STATE "" CACHE FILEPATH "External stuck double-rope transition regression snapshot")
@@ -205,6 +209,7 @@ if(DKC2_BUILD_SNESRECOMP)
         ${SNESRECOMP_RUNNER_SOURCES}
         ${DKC2_SNESRECOMP_GEN_SOURCES}
         runner/dkc2_game.c
+        runner/dkc2_telemetry.c
         runner/dkc2_coop.c
         runner/dkc2_video.c
         runner/dkc2_hdma.c
@@ -251,6 +256,8 @@ if(DKC2_BUILD_SNESRECOMP)
             ${SNESRECOMP_RUNNER_SOURCES}
             ${DKC2_SNESRECOMP_GEN_SOURCES}
             runner/dkc2_game.c
+            runner/dkc2_telemetry.c
+        runner/dkc2_telemetry.c
             runner/dkc2_coop.c
             runner/dkc2_video.c
             runner/dkc2_hdma.c
@@ -320,6 +327,7 @@ if(DKC2_BUILD_SNESRECOMP)
         ${SNESRECOMP_RUNNER_SOURCES}
         ${DKC2_SNESRECOMP_GEN_SOURCES}
         runner/dkc2_game.c
+        runner/dkc2_telemetry.c
         runner/dkc2_coop.c
         runner/dkc2_video.c
         runner/dkc2_hdma.c
@@ -685,6 +693,10 @@ if(BUILD_TESTING)
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_project_kongs.py)
         set_tests_properties(project_kongs_import PROPERTIES LABELS "unit;tooling;characters")
+        add_test(NAME hd_kong_pack_builder
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_build_hd_kong_pack.py)
+        set_tests_properties(hd_kong_pack_builder PROPERTIES LABELS "unit;tooling;characters")
         add_test(NAME audio_pcm_compare
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_compare_audio_pcm.py)
@@ -1127,6 +1139,16 @@ if(BUILD_TESTING)
     set_tests_properties(dkc2_video PROPERTIES
         LABELS "unit;desktop;video;widescreen")
 
+    add_executable(test_dkc2_telemetry
+        tests/test_dkc2_telemetry.c
+        runner/dkc2_telemetry.c)
+    target_include_directories(test_dkc2_telemetry PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/runner)
+    dkc2_enable_project_warnings(test_dkc2_telemetry)
+    add_test(NAME dkc2_telemetry COMMAND test_dkc2_telemetry)
+    set_tests_properties(dkc2_telemetry PROPERTIES
+        LABELS "unit;desktop;telemetry")
+
     add_executable(test_dkc2_coop
         tests/test_dkc2_coop.c
         runner/dkc2_coop.c
@@ -1201,13 +1223,23 @@ if(BUILD_TESTING)
         target_include_directories(test_dkc2_spc_music PRIVATE runner snesrecomp/runner/src)
         dkc2_enable_project_warnings(test_dkc2_spc_music)
         add_test(NAME dkc2_spc_music COMMAND test_dkc2_spc_music)
-        add_executable(test_kongs tests/test_kongs.c runner/dkc2_kongs.c)
+        add_executable(test_kongs tests/test_kongs.c runner/dkc2_kongs.c runner/dkc2_hd.c)
         target_include_directories(test_kongs PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/runner
             ${CMAKE_CURRENT_SOURCE_DIR}/snesrecomp/runner/src)
         dkc2_enable_project_warnings(test_kongs)
         add_test(NAME project_kongs_runtime COMMAND test_kongs)
         set_tests_properties(project_kongs_runtime PROPERTIES LABELS "unit;characters;native")
+        add_executable(test_dkc2_hd tests/test_dkc2_hd.c runner/dkc2_hd.c)
+        target_include_directories(test_dkc2_hd PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/runner
+            ${CMAKE_CURRENT_SOURCE_DIR}/snesrecomp/runner/src)
+        if(NOT MSVC)
+            target_link_libraries(test_dkc2_hd PRIVATE m)
+        endif()
+        dkc2_enable_project_warnings(test_dkc2_hd)
+        add_test(NAME hd_kongs_runtime COMMAND test_dkc2_hd)
+        set_tests_properties(hd_kongs_runtime PROPERTIES LABELS "unit;characters;video")
         add_executable(test_snesrecomp_interp816
             snesrecomp/tests/interp816/interp816_test.c
             snesrecomp/runner/src/snes/interp816.c)
@@ -1302,4 +1334,22 @@ if(BUILD_TESTING)
             PASS_REGULAR_EXPRESSION
                 "Frame SHA-256: ce5c1873327e39ba4d77c33e101ce9956ee86554c889855b8e3531b330923c2f")
     endif()
+endif()
+
+# Optional HD replacement Kong (presentation only, see docs/HD_KONGS.md).
+# The original frames in DKC2_HD_KONG_PACK_DIR are packed beside each
+# playable host as mods/kong-hd.dkc2hd, which the hosts load at start-up.
+set(DKC2_HD_KONG_PACK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mods/mandro-hd" CACHE PATH
+    "HD Kong frames packed beside the hosts as mods/kong-hd.dkc2hd (empty disables)")
+if(DKC2_HD_KONG_PACK_DIR AND Python3_EXECUTABLE)
+    foreach(_hd_target dkc2_snesrecomp_desktop dkc2_snesrecomp_sdl)
+        if(TARGET ${_hd_target})
+            add_custom_command(TARGET ${_hd_target} POST_BUILD
+                COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_hd_kong_pack.py"
+                    "${DKC2_HD_KONG_PACK_DIR}"
+                    "$<TARGET_FILE_DIR:${_hd_target}>/mods/kong-hd.dkc2hd"
+                VERBATIM)
+        endif()
+    endforeach()
 endif()
