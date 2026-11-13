@@ -25,7 +25,10 @@ Authoring tool (needs ffmpeg, numpy and Pillow); the build itself does not.
   frames show the character standing; their height rescales a clip framed
   wider than the idle one), "open=N" (remove keyed structures thinner than N
   pixels, such as a pole or bar the character holds), "every=N" (keep one
-  clip frame in N, each shown N times longer; halves a long clip's size).
+  clip frame in N, each shown N times longer; halves a long clip's size),
+  "main" (keep only the body's connected shape, dropping detached dust or
+  debris), "stride" (start a loop on its widest frame, so that walk and run cycles
+  begin at the same point of the stride).
 * --merge keeps the animations, animationIds and tuning of an existing
   pack.json in --out and only replaces the slots given on this run.
 """
@@ -37,7 +40,7 @@ import subprocess
 import zlib
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 
 def read_video(path):
@@ -72,6 +75,22 @@ def remove_thin(rgba, size):
     out = rgba.copy()
     out[..., 3] = np.minimum(rgba[..., 3], np.asarray(opened))
     out[out[..., 3] == 0] = 0
+    return out
+
+
+def keep_main(rgba):
+    """Keep the connected shape that contains the body's core; detached
+    blobs (dust, debris) become transparent."""
+    # A copy: an image sharing the array's memory is read-only for floodfill.
+    mask = Image.fromarray(((rgba[..., 3] > 40) * 255).astype(np.uint8)).copy()
+    core = np.asarray(mask.filter(ImageFilter.MinFilter(31)))
+    ys, xs = np.nonzero(core)
+    if not len(xs):
+        return rgba
+    seed = (int(xs[len(xs) // 2]), int(ys[len(ys) // 2]))
+    ImageDraw.floodfill(mask, seed, 128)
+    out = rgba.copy()
+    out[np.asarray(mask) != 128] = 0
     return out
 
 
@@ -243,13 +262,16 @@ def main():
             parser.error(f"--clip expects NAME=PATH[@OPTS], got {item!r}")
         opts = {o.split("=")[0]: (o.split("=", 1)[1] if "=" in o else True)
                 for o in opts.split(",") if o}
-        frames = [key(f) for f in read_video(Path(path))]
-        if "open" in opts:
-            frames = [remove_thin(f, int(opts["open"])) for f in frames]
-        ms = [measure(f) for f in frames]
+        raw = read_video(Path(path))
         if "trim" in opts:
             a, b = (int(v) for v in opts["trim"].split("-"))
-            frames, ms = frames[a:b], ms[a:b]
+            raw = raw[a:b]
+        frames = [key(f) for f in raw]
+        if "open" in opts:
+            frames = [remove_thin(f, int(opts["open"])) for f in frames]
+        if "main" in opts:
+            frames = [keep_main(f) for f in frames]
+        ms = [measure(f) for f in frames]
         keep = [k for k, m in enumerate(ms) if m]
         frames, ms = [frames[k] for k in keep], [ms[k] for k in keep]
         if not frames:
@@ -264,6 +286,9 @@ def main():
             n = len(frames)
             i, j = best_loop(frames, max(6, n // 4), max(7, n - 1))
             frames, ms = frames[i:j], ms[i:j]
+            if "stride" in opts:
+                k = max(range(len(ms)), key=lambda q: ms[q]["right"] - ms[q]["left"])
+                frames, ms = frames[k:] + frames[:k], ms[k:] + ms[:k]
         emit(name, frames, ms, loop, airborne="air" in opts, clip_scale=clip_scale,
              track="track" in opts, every=max(1, int(opts.get("every", 1))))
 

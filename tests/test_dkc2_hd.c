@@ -96,6 +96,18 @@ static void TestClassifier(void) {
   CHECK(Dkc2HdClassify(&m, x, 495, false, false, 30) == kDkc2HdFall);
   CHECK(m.started == 30);
   CHECK(Dkc2HdClassify(&m, x + 400, 500, true, false, 31) != kDkc2HdRun); /* teleport ignored */
+  /* 2 px per tick starts a walk, but does not end a run already under way. */
+  Dkc2HdMotion slow, fast;
+  memset(&slow, 0, sizeof slow);
+  memset(&fast, 0, sizeof fast);
+  int sx = 0, fx = 0;
+  for (uint32_t t = 0; t < 8; ++t) Dkc2HdClassify(&slow, sx += 2, 500, true, false, t);
+  CHECK(slow.animation == kDkc2HdWalk);
+  for (uint32_t t = 0; t < 8; ++t) Dkc2HdClassify(&fast, fx += 3, 500, true, false, t);
+  for (uint32_t t = 8; t < 16; ++t) Dkc2HdClassify(&fast, fx += 2, 500, true, false, t);
+  CHECK(fast.animation == kDkc2HdRun);
+  for (uint32_t t = 16; t < 24; ++t) Dkc2HdClassify(&fast, fx += 1, 500, true, false, t);
+  CHECK(fast.animation == kDkc2HdWalk);
 }
 
 static Ppu *NewPpu(void) {
@@ -174,6 +186,34 @@ static void TestCompositing(void) {
   Dkc2HdBeginFrame(199);               /* its clock on the next appearance  */
   for (uint32_t t = 200; t < 205; ++t) s = Render(ppu, &in, t);
   CHECK(s && s->rgba[3] == 0 && s->rgba[2] == 255);
+  free(ppu);
+}
+
+/* A change of pose cross-fades from the last frame shown for a few ticks. */
+static void TestCrossFade(void) {
+  static uint8_t pack[4096];
+  CHECK(Dkc2HdLoadBytes(pack, BuildPack(pack, kDkc2HdFlagReplaceDiddy)));
+  Ppu *ppu = NewPpu();
+  for (unsigned i = 0; i < kPpuBufWidth; ++i) ppu->bgBuffers[0].data[i] = 0x7100;
+  uint8_t slots[128] = {0};
+  Dkc2HdActorInput in = Actor(slots, 3u << 12);
+  Dkc2HdBeginFrame(298);
+  Dkc2HdBeginFrame(299);
+  const Dkc2OverlaySprite *s = Render(ppu, &in, 300);   /* idle: red frame */
+  CHECK(s && s->rgba[0] == 255 && s->rgba[3] == 255);
+  in.grounded = false;
+  in.rising = true;                                     /* jump: blue, left half clear */
+  s = Render(ppu, &in, 301);
+  CHECK(s && s->width == 8 && s->height == 8);
+  /* Left half: only the old red frame, fading out. */
+  CHECK(s && s->rgba[0] == 255 && s->rgba[3] > 200 && s->rgba[3] < 255);
+  /* Right half: mostly red still, some blue, fully opaque. */
+  const uint8_t *right = s ? s->rgba + 6 * 4 : NULL;
+  CHECK(right && right[3] == 255 && right[0] > right[2] && right[2] > 20);
+  for (uint32_t t = 302; t < 306; ++t) s = Render(ppu, &in, t);
+  CHECK(s && s->rgba[3] > 0 && s->rgba[3] < 60);         /* nearly gone */
+  s = Render(ppu, &in, 306);
+  CHECK(s && s->rgba[3] == 0 && s->rgba[6 * 4 + 2] == 255 && s->rgba[6 * 4 + 0] == 0);
   free(ppu);
 }
 
@@ -372,6 +412,7 @@ int main(int argc, char **argv) {
   TestCompositing();
   TestToggle();
   TestStyles();
+  TestCrossFade();
   TestExtendedSlots();
   TestInactive();
   TestRealPack(argc > 1 ? argv[1] : NULL);
