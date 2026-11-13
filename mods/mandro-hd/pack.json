@@ -3452,6 +3452,216 @@
      6
     ]
    ]
+  },
+  "crouch": {
+   "loop": true,
+   "frames": [
+    [
+     "crouch/000.png",
+     8
+    ],
+    [
+     "crouch/001.png",
+     7
+    ],
+    [
+     "crouch/002.png",
+     7
+    ],
+    [
+     "crouch/003.png",
+     8
+    ],
+    [
+     "crouch/004.png",
+     8
+    ],
+    [
+     "crouch/005.png",
+     7
+    ],
+    [
+     "crouch/006.png",
+     7
+    ],
+    [
+     "crouch/007.png",
+     8
+    ],
+    [
+     "crouch/008.png",
+     8
+    ],
+    [
+     "crouch/009.png",
+     7
+    ],
+    [
+     "crouch/010.png",
+     7
+    ],
+    [
+     "crouch/011.png",
+     8
+    ],
+    [
+     "crouch/012.png",
+     8
+    ],
+    [
+     "crouch/013.png",
+     7
+    ],
+    [
+     "crouch/014.png",
+     7
+    ],
+    [
+     "crouch/013.png",
+     7
+    ],
+    [
+     "crouch/012.png",
+     8
+    ],
+    [
+     "crouch/011.png",
+     8
+    ],
+    [
+     "crouch/010.png",
+     7
+    ],
+    [
+     "crouch/009.png",
+     7
+    ],
+    [
+     "crouch/008.png",
+     8
+    ],
+    [
+     "crouch/007.png",
+     8
+    ],
+    [
+     "crouch/006.png",
+     7
+    ],
+    [
+     "crouch/005.png",
+     7
+    ],
+    [
+     "crouch/004.png",
+     8
+    ],
+    [
+     "crouch/003.png",
+     8
+    ],
+    [
+     "crouch/002.png",
+     7
+    ],
+    [
+     "crouch/001.png",
+     7
+    ]
+   ]
+  },
+  "knockout": {
+   "loop": true,
+   "frames": [
+    [
+     "knockout/000.png",
+     8
+    ],
+    [
+     "knockout/001.png",
+     7
+    ],
+    [
+     "knockout/002.png",
+     7
+    ],
+    [
+     "knockout/003.png",
+     8
+    ],
+    [
+     "knockout/004.png",
+     8
+    ],
+    [
+     "knockout/005.png",
+     7
+    ],
+    [
+     "knockout/006.png",
+     7
+    ],
+    [
+     "knockout/007.png",
+     8
+    ],
+    [
+     "knockout/008.png",
+     8
+    ],
+    [
+     "knockout/009.png",
+     7
+    ],
+    [
+     "knockout/010.png",
+     7
+    ],
+    [
+     "knockout/011.png",
+     8
+    ],
+    [
+     "knockout/010.png",
+     7
+    ],
+    [
+     "knockout/009.png",
+     7
+    ],
+    [
+     "knockout/008.png",
+     8
+    ],
+    [
+     "knockout/007.png",
+     8
+    ],
+    [
+     "knockout/006.png",
+     7
+    ],
+    [
+     "knockout/005.png",
+     7
+    ],
+    [
+     "knockout/004.png",
+     8
+    ],
+    [
+     "knockout/003.png",
+     8
+    ],
+    [
+     "knockout/002.png",
+     7
+    ],
+    [
+     "knockout/001.png",
+     7
+    ]
+   ]
   }
  },
  "animationIds": {
@@ -3459,7 +3669,6 @@
    9
   ],
   "hurt": [
-   10,
    41,
    42
   ],
@@ -3519,6 +3728,30 @@
   "hang_idle": [
    57,
    66
+  ],
+  "crouch": [
+   12,
+   13,
+   14
+  ],
+  "knockout": [
+   10,
+   40
+  ],
+  "carry_idle": [
+   29,
+   30,
+   33,
+   34,
+   35,
+   36,
+   37
+  ],
+  "carry_walk": [
+   31
+  ],
+  "throw": [
+   38
   ]
  }
 }

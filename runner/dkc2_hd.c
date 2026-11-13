@@ -382,6 +382,7 @@ static int Resolve(int animation) {
     case kDkc2HdHangIdle: return Resolve(kDkc2HdHang);
     case kDkc2HdClimbWideMove: return Resolve(kDkc2HdClimbWideIdle);
     case kDkc2HdClimbWideIdle: return Resolve(kDkc2HdClimbIdle);
+    case kDkc2HdKnockout: return Resolve(kDkc2HdHurt);
     case kDkc2HdFall: return s_pack.animations[kDkc2HdJump].count ? kDkc2HdJump : kDkc2HdIdle;
     default: return kDkc2HdIdle;
   }

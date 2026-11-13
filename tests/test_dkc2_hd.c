@@ -534,6 +534,21 @@ static void TestRealPack(const char *path) {
   CHECK(Dkc2HdLoad(path));
   CHECK(Dkc2HdReplaces(0));
   fprintf(stdout, "%s\n", Dkc2HdStatus());
+  /* The shipped pack ducks, lies knocked out, and holds the partner
+   * overhead in a team-up instead of leaving those to the native sprite. */
+  uint8_t slots[128] = {0};
+  Dkc2HdActorInput in = Actor(slots, 2u << 12);
+  uint32_t t = 5000;
+  Dkc2HdBeginFrame(t++);
+  static const struct { unsigned native; int slot; } kPoses[] = {
+      {0x0C, kDkc2HdCrouch}, {0x0D, kDkc2HdCrouch}, {0x0E, kDkc2HdCrouch},
+      {0x0A, kDkc2HdKnockout}, {0x28, kDkc2HdKnockout}, {0x29, kDkc2HdHurt},
+      {0x1D, kDkc2HdCarryIdle}, {0x1F, kDkc2HdCarryWalk}, {0x26, kDkc2HdThrow}};
+  for (size_t i = 0; i < sizeof kPoses / sizeof kPoses[0]; ++i) {
+    in.animation = kPoses[i].native;
+    CHECK(Dkc2HdAllowsState(in.animation, 0x00));
+    CHECK(Shown(&in, t++) == kPoses[i].slot);
+  }
 }
 
 int main(int argc, char **argv) {

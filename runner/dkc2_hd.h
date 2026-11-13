@@ -58,8 +58,10 @@ enum {
   kDkc2HdHangIdle = 24,       /* hanging still: horizontal rope, hook */
   kDkc2HdClimbWideIdle = 25,  /* spread between two ropes, seen from behind */
   kDkc2HdClimbWideMove = 26,
+  kDkc2HdCrouch = 27,         /* ducked low, held */
+  kDkc2HdKnockout = 28,       /* lying knocked out: lost life, stunned */
   kDkc2HdBasicAnimCount = 5,
-  kDkc2HdAnimCount = 27,
+  kDkc2HdAnimCount = 29,
 };
 
 /* Presentation styles, applied to each composited frame at run time. */
