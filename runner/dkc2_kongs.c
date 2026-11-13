@@ -895,10 +895,12 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
       if (animation < 0xa4) continue;
       animation -= 0xa3;
     }
-    /* HD replacement covers ordinary on-foot play; riding, team-ups, tag
-     * handoffs, carrying and the pack's native-only states keep native art. */
+    /* HD replacement covers on-foot play and, when the pack has a ride
+     * pose, the rider on an animal; team-ups, tag handoffs, carrying without
+     * carry poses and the pack's native-only states keep native art. */
     const unsigned held = Read16(ram + 0xd7a);
-    const bool hd = !rider && Dkc2HdReplaces(who) &&
+    const bool hd = rider ? Dkc2HdReplaces(who) && Dkc2HdHasRide() :
+        Dkc2HdReplaces(who) &&
         Dkc2HdAllowsState(animation, Read16(ram + a + 0x2e)) &&
         !(team_animation && (a == leader || a == partner)) &&
         !(handoff && (a == handoff || a == partner)) &&
@@ -979,7 +981,8 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
       input.slots = actor->slots;
       input.animation = animation;
       input.state = Read16(ram + a + 0x2e);
-      input.carrying = held && a == leader && held != partner;
+      input.carrying = !rider && held && a == leader && held != partner;
+      input.riding = rider;
       Dkc2HdSetActor(who, &input);
       memset(actor, 0, sizeof *actor);
       continue;

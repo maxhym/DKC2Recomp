@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Mandro's pack now carries a lively idle, three fidgets that take turns, a
+  roll, carry poses, rope hang/climb up/climb down, horizontal rope, swim,
+  hit, riding, victory and throw (674 frames, 48 MB). The engine adds
+  `fidget2`, `fidget3`, `hang` and `climb_down` slots, draws the `ride` pose
+  for the rider on an animal instead of the native Kong, and starts a fidget
+  after 5 s instead of 7. Rope IDs are mapped; roll, swim, victory and throw
+  still need their native IDs.
 - The HD pack builder trims transparent frame borders (Mandro's pack drops
   from 42 MB to 14 MB, same placement), and the frame extractor takes extra
   slots with `--clip NAME=PATH[@options]` and `--merge`.

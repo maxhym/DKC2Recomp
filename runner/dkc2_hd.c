@@ -12,7 +12,7 @@ enum {
   kMaxSteps = 4096,
   kMaxNativeOnly = 512,
   kMaxMap = 512,
-  kFidgetDelay = 420, /* ticks standing still before a fidget */
+  kFidgetDelay = 300, /* ticks standing still before a fidget */
   kMaxFrameSide = 1024,
   kMaskRows = 240,
 };
@@ -46,6 +46,7 @@ typedef struct HdShow {
   int animation;
   uint32_t since, idle_since;
   unsigned native;
+  unsigned fidget_turn; /* next fidget slot to try */
   bool valid;
 } HdShow;
 static HdShow s_show[2];
@@ -291,6 +292,10 @@ static bool IsHurtState(unsigned state) {
   return state == 0x24 || state == 0x25 || state == 0x59;
 }
 
+bool Dkc2HdHasRide(void) {
+  return Dkc2HdEnabled() && s_pack.animations[kDkc2HdRide].count != 0;
+}
+
 bool Dkc2HdHasCarry(void) {
   return Dkc2HdEnabled() && (s_pack.animations[kDkc2HdCarryIdle].count ||
                              s_pack.animations[kDkc2HdCarryWalk].count);
@@ -350,6 +355,8 @@ static int Resolve(int animation) {
     case kDkc2HdRun: return Resolve(kDkc2HdWalk);
     case kDkc2HdCarryWalk: return Resolve(kDkc2HdCarryIdle);
     case kDkc2HdClimbMove: return Resolve(kDkc2HdClimbIdle);
+    case kDkc2HdClimbDown: return Resolve(kDkc2HdClimbMove);
+    case kDkc2HdHang: return Resolve(kDkc2HdClimbIdle);
     case kDkc2HdFall: return s_pack.animations[kDkc2HdJump].count ? kDkc2HdJump : kDkc2HdIdle;
     default: return kDkc2HdIdle;
   }
@@ -375,6 +382,24 @@ static uint32_t Duration(int animation) {
   uint32_t total = 0;
   for (unsigned i = 0; i < a->count; ++i) total += s_pack.steps[a->first + i].duration;
   return total;
+}
+
+static bool IsFidget(int animation) {
+  return animation == kDkc2HdFidget || animation == kDkc2HdFidget2 ||
+         animation == kDkc2HdFidget3;
+}
+
+/* The fidget slots the pack carries take turns. */
+static int NextFidget(HdShow *show) {
+  static const int kFidgets[3] = {kDkc2HdFidget, kDkc2HdFidget2, kDkc2HdFidget3};
+  for (unsigned i = 0; i < 3; ++i) {
+    const unsigned turn = (show->fidget_turn + i) % 3;
+    if (s_pack.animations[kFidgets[turn]].count) {
+      show->fidget_turn = (turn + 1) % 3;
+      return kFidgets[turn];
+    }
+  }
+  return -1;
 }
 
 void Dkc2HdBeginFrame(uint32_t tick) {
@@ -410,23 +435,25 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
     show->idle_since = s_tick;
   }
   /* A finished fidget restarts the wait before the next one. */
-  if (show->animation == kDkc2HdFidget && s_tick - show->since >= Duration(kDkc2HdFidget))
+  if (IsFidget(show->animation) && s_tick - show->since >= Duration(show->animation))
     show->idle_since = s_tick;
-  /* Priority: the pack's map for this native animation, a hurt pose, the
-   * carry poses, a fidget after standing still, then motion. */
-  int animation = MappedSlot(input->animation);
+  /* Priority: riding, the pack's map for this native animation, a hurt
+   * pose, the carry poses, a fidget after standing still, then motion. */
+  int animation = input->riding && Dkc2HdHasRide() ? kDkc2HdRide : -1;
+  if (animation < 0) animation = MappedSlot(input->animation);
   if (animation < 0 && IsHurtState(input->state) && s_pack.animations[kDkc2HdHurt].count)
     animation = kDkc2HdHurt;
   if (animation < 0 && input->carrying && Dkc2HdHasCarry())
     animation = moving == kDkc2HdWalk || moving == kDkc2HdRun ? kDkc2HdCarryWalk
                                                               : kDkc2HdCarryIdle;
-  if (animation < 0 && moving == kDkc2HdIdle && s_pack.animations[kDkc2HdFidget].count) {
-    const bool fidgeting = show->animation == kDkc2HdFidget &&
-                           s_tick - show->since < Duration(kDkc2HdFidget);
-    if (fidgeting || s_tick - show->idle_since >= kFidgetDelay) animation = kDkc2HdFidget;
+  if (animation < 0 && moving == kDkc2HdIdle) {
+    if (IsFidget(show->animation) && s_tick - show->since < Duration(show->animation))
+      animation = show->animation;
+    else if (s_tick - show->idle_since >= kFidgetDelay)
+      animation = NextFidget(show);
   }
   if (animation < 0) animation = moving;
-  if (animation != kDkc2HdIdle && animation != kDkc2HdFidget) show->idle_since = s_tick;
+  if (animation != kDkc2HdIdle && !IsFidget(animation)) show->idle_since = s_tick;
   if (animation != show->animation) {
     /* Motion classes keep the classifier's clock; other slots start now. */
     const bool both_motion = animation < kDkc2HdBasicAnimCount &&

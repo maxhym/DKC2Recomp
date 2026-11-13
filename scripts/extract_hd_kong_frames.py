@@ -23,7 +23,9 @@ Authoring tool (needs ffmpeg, numpy and Pillow); the build itself does not.
   character travels), "air" (also centre vertically, for swimming or
   hanging), "trim=A-B" (keep clip frames A..B-1), "stand=N" (the first N
   frames show the character standing; their height rescales a clip framed
-  wider than the idle one).
+  wider than the idle one), "open=N" (remove keyed structures thinner than N
+  pixels, such as a pole or bar the character holds), "every=N" (keep one
+  clip frame in N, each shown N times longer; halves a long clip's size).
 * --merge keeps the animations, animationIds and tuning of an existing
   pack.json in --out and only replaces the slots given on this run.
 """
@@ -35,7 +37,7 @@ import subprocess
 import zlib
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 def read_video(path):
@@ -59,6 +61,18 @@ def key(frame):
     out = np.stack([r, g2, b, alpha * 255.0], axis=-1)
     out[alpha < 0.04] = 0
     return out.astype(np.uint8)
+
+
+def remove_thin(rgba, size):
+    """Drop opaque structures thinner than `size` pixels (a morphological
+    opening of the alpha mask); soft edges of the body are kept."""
+    size = max(3, size | 1)
+    alpha = Image.fromarray(rgba[..., 3])
+    opened = alpha.filter(ImageFilter.MinFilter(size)).filter(ImageFilter.MaxFilter(size))
+    out = rgba.copy()
+    out[..., 3] = np.minimum(rgba[..., 3], np.asarray(opened))
+    out[out[..., 3] == 0] = 0
+    return out
 
 
 def measure(rgba):
@@ -171,14 +185,17 @@ def main():
     animations, report = {}, {}
 
     def emit(name, frames, ms, loop, airborne=False, ground=None, clip_scale=None,
-             track=False):
+             track=False, every=1):
         clip_scale = clip_scale or scale
         (args.out / name).mkdir(exist_ok=True)
+        for stale in (args.out / name).glob("*.png"):
+            stale.unlink()
         entries = []
         if ground is None:
             ground = max(m["bottom"] for m in ms)
         com_x = float(np.median([m["cx"] for m in ms]))
-        for k, (f, m, d) in enumerate(zip(frames, ms, durations(len(frames)))):
+        frames, ms = frames[::every], ms[::every]
+        for k, (f, m, d) in enumerate(zip(frames, ms, durations(len(frames), 24.0 / every))):
             # Airborne frames are centred one by one (the game moves the Kong);
             # ground cycles keep their natural sway around the clip's median.
             cx = m["cx"] if airborne or track else com_x
@@ -227,6 +244,8 @@ def main():
         opts = {o.split("=")[0]: (o.split("=", 1)[1] if "=" in o else True)
                 for o in opts.split(",") if o}
         frames = [key(f) for f in read_video(Path(path))]
+        if "open" in opts:
+            frames = [remove_thin(f, int(opts["open"])) for f in frames]
         ms = [measure(f) for f in frames]
         if "trim" in opts:
             a, b = (int(v) for v in opts["trim"].split("-"))
@@ -246,7 +265,7 @@ def main():
             i, j = best_loop(frames, max(6, n // 4), max(7, n - 1))
             frames, ms = frames[i:j], ms[i:j]
         emit(name, frames, ms, loop, airborne="air" in opts, clip_scale=clip_scale,
-             track="track" in opts)
+             track="track" in opts, every=max(1, int(opts.get("every", 1))))
 
     previous = {}
     pack_path = args.out / "pack.json"

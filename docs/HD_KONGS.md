@@ -31,9 +31,9 @@ textured quad in their place.
    the CRT or flat pass.
 
 The Kong keeps its native sprite whenever the pack does not cover the moment:
-riding an animal, hurt and knocked-out states, being carried or carrying the
-partner, team-up and handoff, and every animation listed in
-`nativeOnlyAnimations`.
+riding an animal (unless the pack has a `ride` pose), knocked-out states
+without a `hurt` pose, being carried or carrying the partner, team-up and
+handoff, and every animation listed in `nativeOnlyAnimations`.
 
 ## Testing Mandro
 
@@ -65,18 +65,22 @@ sprite.
 ## Animation slots
 
 Slots 0-4 (idle, walk, run, jump, fall) come from the motion classifier. A
-pack may add: `fidget` (played once after 7 s standing still), `roll`,
-`carry_idle`/`carry_walk` (holding a barrel or object), `climb_idle`/
-`climb_move`, `swim`, `hurt`, `ride`, `victory` and `throw`. For each frame the
-engine picks, in order: the slot the pack's `animationIds` map assigns to the
-native animation ID; `hurt` in knock-out states `$24/$25/$59`; the carry slots
-while the leader holds an object other than its partner; a fidget; then
-motion. Missing slots fall back (carry walk to carry idle, climb move to
-climb idle, others to idle), and moments with no slot keep the native sprite
-as before. Known rope IDs: single rope `$2F` hang, `$30` up, `$31` down, `$32`
+pack may add: `fidget`, `fidget2`, `fidget3` (one plays after 5 s standing
+still; they take turns), `roll`, `carry_idle`/`carry_walk` (holding a barrel
+or object; the game still draws the barrel), `climb_idle`/`climb_move`/
+`climb_down`, `hang` (horizontal rope), `swim`, `hurt`, `ride`, `victory` and
+`throw`. For each frame the engine picks, in order: `ride` for the rider on an
+animal; the slot the pack's `animationIds` map assigns to the native animation
+ID; `hurt` in knock-out states `$24/$25/$59`; the carry slots while the leader
+holds an object other than its partner; a fidget; then motion. Missing slots
+fall back (carry walk to carry idle, climb down to climb move to climb idle,
+hang to climb idle, others to idle), and moments with no slot keep the native
+sprite as before. Known rope IDs: single rope `$2F` hang, `$30` up, `$31` down, `$32`
 turn; double rope `$34/$35` transitions, `$36` hang, `$37` up, `$38` down;
-horizontal rope `$39/$3A`. `DKC2_HD_TRACE=1` prints every native animation ID
-and state change, to complete the map for rolls, swimming and celebrations.
+horizontal rope `$39/$3A`; Mandro's pack maps all of them. `DKC2_HD_TRACE=1`
+prints every native animation ID and state change, to complete the map for
+rolls, swimming, celebrations and throws: Mandro has those clips, but they
+play only once their IDs are in `animationIds`.
 
 ## Styles
 
@@ -146,7 +150,9 @@ python scripts/extract_hd_kong_frames.py --out mods/my-kong --idle idle.mp4 --me
 Options: `loop` (best loop) or once (default), `track` (centre each frame, for
 clips where the character travels), `air` (centre vertically too),
 `trim=A-B` (clip frames A to B-1), `stand=N` (rescale a wider shot from the
-standing height of its first N frames).
+standing height of its first N frames), `open=N` (remove keyed structures
+thinner than N pixels, such as a green pole the character holds), `every=N`
+(keep one frame in N, shown N times longer).
 
 The pack builder trims the transparent border of every frame and moves the
 anchor with it, so placement does not change and the pack is about a third of
@@ -154,9 +160,10 @@ the size of the uncropped frames.
 
 ## Limits
 
-- Not yet checked in game: anchor offset, facing, the grounded/rising bits and
-  which animation IDs need to stay native (swimming, climbing, cartwheel and
-  hair-spin are expected to need entries in `nativeOnlyAnimations`).
+- Not yet checked in game: anchor offset, facing, the grounded/rising bits,
+  the rider's placement on each animal, the rope poses' vertical placement,
+  and which animation IDs need to stay native (cartwheel and hair-spin are
+  expected to need entries in `nativeOnlyAnimations`).
 - Palette effects such as water tint, colour math and mosaic do not reach the
   HD sprite; master brightness fades do.
 - The CRT tube curvature is not applied to the HD sprite.

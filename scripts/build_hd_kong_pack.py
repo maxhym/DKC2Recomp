@@ -18,7 +18,8 @@ build. Input is a directory holding `pack.json` and RGBA PNG frames:
         "walk": ..., "run": ..., "jump": ..., "fall": ...,
         "fidget": ..., "roll": ..., "carry_idle": ..., "carry_walk": ...,
         "climb_idle": ..., "climb_move": ..., "swim": ..., "hurt": ...,
-        "ride": ..., "victory": ..., "throw": ...
+        "ride": ..., "victory": ..., "throw": ..., "fidget2": ..., "fidget3": ...,
+        "hang": ..., "climb_down": ...
       }
     }
 
@@ -37,10 +38,10 @@ import zlib
 
 ANIMATIONS = ("idle", "walk", "run", "jump", "fall", "fidget", "roll", "carry_idle",
               "carry_walk", "climb_idle", "climb_move", "swim", "hurt", "ride", "victory",
-              "throw")
+              "throw", "fidget2", "fidget3", "hang", "climb_down")
 BASIC = 5
 LOOPING = ("idle", "walk", "run", "carry_idle", "carry_walk", "climb_idle", "climb_move",
-           "swim", "ride")
+           "swim", "ride", "hang", "climb_down")
 FLAG_FACES_LEFT, FLAG_DIDDY, FLAG_DIXIE = 1, 2, 4
 HEADER_SIZE = 64
 

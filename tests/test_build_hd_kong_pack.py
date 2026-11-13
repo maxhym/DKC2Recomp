@@ -143,9 +143,13 @@ class BuildHdKongPackTests(unittest.TestCase):
             self.skipTest("Mandro frames are not present")
         data, frames, steps = pack.build(source)
         self.assertGreater(frames, 50)
-        for name in pack.ANIMATIONS[:5]:
+        spec = json.loads((source / "pack.json").read_text(encoding="utf-8"))
+        records = 32 if data[:8] == b"DKC2HD02" else 24
+        count = struct.unpack_from("<H", data, 22)[0] if records == 32 else 5
+        for name in spec["animations"]:
             index = pack.ANIMATIONS.index(name)
-            self.assertGreater(struct.unpack_from("<HHHH", data, 24 + index * 8)[1], 0, name)
+            self.assertLess(index, count, name)
+            self.assertGreater(struct.unpack_from("<HHHH", data, records + index * 8)[1], 0, name)
 
 
 if __name__ == "__main__":

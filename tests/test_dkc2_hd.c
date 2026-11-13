@@ -198,11 +198,12 @@ static void TestToggle(void) {
   CHECK(Dkc2HdReplaces(0));
 }
 
-/* v2 pack: idle (frame 0), fidget (frame 1 for 10 ticks, once), roll,
- * carry_idle and hurt (frame 1), and a map from native animation 12 to roll.
+/* v2 pack: idle (frame 0), fidget and fidget2 (frame 1 for 10 ticks, once),
+ * roll, carry_idle, hurt (frame 1) and ride (frame 0), and a map from native
+ * animation 12 to roll.
  * Native animation 12 is also listed as native-only: the map must win. */
 static size_t BuildPackV2(uint8_t *out) {
-  const unsigned frames = 2, anims = kDkc2HdHurt + 1, steps = 5, native_only = 1, maps = 1;
+  const unsigned frames = 2, anims = kDkc2HdFidget2 + 1, steps = 7, native_only = 1, maps = 1;
   memset(out, 0, 4096);
   memcpy(out, "DKC2HD02", 8);
   Put16(out + 8, kDkc2HdFlagReplaceDiddy);
@@ -213,17 +214,18 @@ static size_t BuildPackV2(uint8_t *out) {
   Put16(out + 22, anims);
   Put16(out + 24, maps);
   const unsigned slot_step[][2] = {{kDkc2HdIdle, 0}, {kDkc2HdFidget, 1}, {kDkc2HdRoll, 2},
-                                   {kDkc2HdCarryIdle, 3}, {kDkc2HdHurt, 4}};
-  for (unsigned i = 0; i < 5; ++i) {
+                                   {kDkc2HdCarryIdle, 3}, {kDkc2HdHurt, 4},
+                                   {kDkc2HdFidget2, 5}, {kDkc2HdRide, 6}};
+  for (unsigned i = 0; i < 7; ++i) {
     uint8_t *r = out + 32 + slot_step[i][0] * 8;
     Put16(r, slot_step[i][1]);
     Put16(r + 2, 1);
-    Put16(r + 4, slot_step[i][0] != kDkc2HdFidget);
+    Put16(r + 4, slot_step[i][0] != kDkc2HdFidget && slot_step[i][0] != kDkc2HdFidget2);
   }
   size_t c = 32 + anims * 8;
   for (unsigned i = 0; i < steps; ++i, c += 4) {
-    Put16(out + c, i == 0 ? 0 : 1);
-    Put16(out + c + 2, i == 1 ? 10 : 4);
+    Put16(out + c, i == 0 || i == 6 ? 0 : 1);
+    Put16(out + c + 2, i == 1 || i == 5 ? 10 : 4);
   }
   Put16(out + c, 12); c += 2;                        /* native-only */
   Put16(out + c, 12); Put16(out + c + 2, kDkc2HdRoll); c += 4;
@@ -248,7 +250,8 @@ static int Shown(Dkc2HdActorInput *in, uint32_t tick) {
 static void TestExtendedSlots(void) {
   static uint8_t pack[4096];
   CHECK(Dkc2HdLoadBytes(pack, BuildPackV2(pack)));
-  CHECK(strstr(Dkc2HdStatus(), "5 animations") != NULL);
+  CHECK(strstr(Dkc2HdStatus(), "7 animations") != NULL);
+  CHECK(Dkc2HdHasRide());
   CHECK(Dkc2HdAllowsState(12, 0x00));      /* mapped wins over native-only */
   CHECK(Dkc2HdAllowsState(1, 0x24));       /* hurt pose available */
   CHECK(Dkc2HdHasCarry());
@@ -266,15 +269,30 @@ static void TestExtendedSlots(void) {
   in.carrying = true;
   CHECK(Shown(&in, t++) == kDkc2HdCarryIdle);
   in.carrying = false;
-  /* Standing still long enough plays the fidget once, then idles again. */
-  int seen_fidget = 0, after = -1;
-  for (unsigned i = 0; i < 440; ++i) {
+  /* Standing still long enough plays a fidget once, then idles again; the
+   * fidget slots take turns. */
+  int seen[kDkc2HdAnimCount] = {0}, order[3] = {-1, -1, -1}, after = -1;
+  unsigned fidgets = 0;
+  int last = kDkc2HdIdle;
+  for (unsigned i = 0; i < 1000 && fidgets < 3; ++i) {
     const int shown = Shown(&in, t++);
-    if (shown == kDkc2HdFidget) ++seen_fidget;
-    else if (seen_fidget) { after = shown; break; }
+    ++seen[shown];
+    if (shown != last && (shown == kDkc2HdFidget || shown == kDkc2HdFidget2))
+      order[fidgets++] = shown;
+    if (last == kDkc2HdFidget && shown != last && after < 0) after = shown;
+    last = shown;
   }
-  CHECK(seen_fidget == 10);
+  CHECK(order[0] == kDkc2HdFidget);
+  CHECK(order[1] == kDkc2HdFidget2);
+  CHECK(order[2] == kDkc2HdFidget);
+  CHECK(seen[kDkc2HdFidget2] == 10);
   CHECK(after == kDkc2HdIdle);
+  /* The rider on an animal shows the ride pose, ahead of every other slot. */
+  in.riding = true;
+  in.state = 0x24;
+  CHECK(Shown(&in, t++) == kDkc2HdRide);
+  in.riding = false;
+  in.state = 0;
   /* A truncated or out-of-range map is rejected. */
   const size_t size = BuildPackV2(pack);
   CHECK(!Dkc2HdLoadBytes(pack, 40));

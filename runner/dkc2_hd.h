@@ -35,7 +35,8 @@ enum {
   kDkc2HdRun = 2,
   kDkc2HdJump = 3,
   kDkc2HdFall = 4,
-  kDkc2HdFidget = 5,     /* played once after a while standing still */
+  kDkc2HdFidget = 5,     /* played once after a while standing still; the
+                          * fidget slots take turns */
   kDkc2HdRoll = 6,
   kDkc2HdCarryIdle = 7,  /* holding a barrel or object */
   kDkc2HdCarryWalk = 8,
@@ -43,11 +44,15 @@ enum {
   kDkc2HdClimbMove = 10,
   kDkc2HdSwim = 11,
   kDkc2HdHurt = 12,
-  kDkc2HdRide = 13,
+  kDkc2HdRide = 13,      /* seated on an animal (the rider sprite) */
   kDkc2HdVictory = 14,
   kDkc2HdThrow = 15,
+  kDkc2HdFidget2 = 16,
+  kDkc2HdFidget3 = 17,
+  kDkc2HdHang = 18,      /* hanging from a horizontal rope */
+  kDkc2HdClimbDown = 19,
   kDkc2HdBasicAnimCount = 5,
-  kDkc2HdAnimCount = 16,
+  kDkc2HdAnimCount = 20,
 };
 
 /* Presentation styles, applied to each composited frame at run time. */
@@ -114,10 +119,13 @@ typedef struct Dkc2HdActorInput {
   unsigned animation;       /* native animation ID (slot-relative) */
   unsigned state;           /* native sprite state ($2E) */
   bool carrying;            /* holding a barrel or other object */
+  bool riding;              /* the rider sprite on an animal */
 } Dkc2HdActorInput;
 
 /* The pack has carry poses (the Kong may then stay HD while carrying). */
 bool Dkc2HdHasCarry(void);
+/* The pack has a ride pose (the rider on an animal may then be HD). */
+bool Dkc2HdHasRide(void);
 
 /* Per-frame protocol, driven by dkc2_kongs.c and the PPU line hook. */
 void Dkc2HdBeginFrame(uint32_t tick);
