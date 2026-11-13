@@ -56,6 +56,13 @@ static uint8_t s_owned[128];
 static uint8_t s_mask[kMaskRows][kPpuBufWidth];
 static uint8_t *s_out[2];
 static size_t s_out_capacity[2];
+static uint8_t *s_tmp;
+static size_t s_tmp_capacity;
+/* Presentation style and size, chosen by the player (launcher). */
+static int s_style = kDkc2HdStyleHd;
+static float s_size = 1.0f;
+
+static float EffectiveScale(void) { return s_pack.scale / s_size; }
 static Dkc2OverlaySprite s_sprites[2];
 static int s_sprite_count;
 static uint32_t s_serial;
@@ -213,6 +220,10 @@ void Dkc2HdInitialize(void) {
   const char *scale = getenv("DKC2_HD_SCALE");
   const float value = scale ? (float)atof(scale) : 0.0f;
   if (value >= 0.25f && value <= 16.0f) s_pack.scale = value;
+  const char *style = getenv("DKC2_HD_STYLE");
+  if (style && *style) Dkc2HdSetStyle(Dkc2HdStyleFromName(style));
+  const char *size = getenv("DKC2_HD_SIZE");
+  if (size && *size) Dkc2HdSetSize((float)atof(size) / 100.0f);
   const char *flip = getenv("DKC2_HD_FLIP");
   if (flip && flip[0] == '1') s_pack.flags ^= kDkc2HdFlagFacesLeft;
   const char *replace = getenv("DKC2_HD_REPLACE");
@@ -351,7 +362,7 @@ bool Dkc2HdOwnsSlot(unsigned slot) {
 static void Place(HdActor *actor, const Ppu *ppu) {
   if (actor->placed || !actor->frame) return;
   const HdFrame *f = actor->frame;
-  const float scale = s_pack.scale;
+  const float scale = EffectiveScale();
   const bool art_left = (s_pack.flags & kDkc2HdFlagFacesLeft) != 0;
   const bool native_flip = (actor->input.properties & 0x4000) != 0;
   actor->flip = native_flip != art_left;
@@ -388,6 +399,156 @@ void Dkc2HdObserveMainLine(const Ppu *ppu, unsigned line) {
   }
 }
 
+/* ---- Presentation styles: run on the composited frame, never on the pack. */
+
+static bool Scratch(size_t bytes) {
+  if (s_tmp_capacity >= bytes) return true;
+  uint8_t *grown = (uint8_t *)realloc(s_tmp, bytes);
+  if (!grown) return false;
+  s_tmp = grown;
+  s_tmp_capacity = bytes;
+  return true;
+}
+
+/* 1-2-1 blur of premultiplied colour, horizontally then vertically. */
+static void Soften(uint8_t *px, unsigned w, unsigned h) {
+  if (!Scratch((size_t)w * h * 4)) return;
+  for (int pass = 0; pass < 2; ++pass) {
+    const uint8_t *src = px;
+    uint8_t *dst = s_tmp;
+    for (unsigned y = 0; y < h; ++y) {
+      for (unsigned x = 0; x < w; ++x) {
+        unsigned acc[4] = {0, 0, 0, 0}, total = 0;
+        for (int d = -1; d <= 1; ++d) {
+          const int sx = pass == 0 ? (int)x + d : (int)x;
+          const int sy = pass == 0 ? (int)y : (int)y + d;
+          if (sx < 0 || sy < 0 || sx >= (int)w || sy >= (int)h) continue;
+          const uint8_t *p = src + ((size_t)sy * w + (size_t)sx) * 4;
+          const unsigned weight = d == 0 ? 2 : 1;
+          for (int c = 0; c < 3; ++c) acc[c] += (unsigned)p[c] * p[3] / 255 * weight;
+          acc[3] += (unsigned)p[3] * weight;
+          total += weight;
+        }
+        uint8_t *o = dst + ((size_t)y * w + x) * 4;
+        const unsigned alpha = acc[3] / total;
+        for (int c = 0; c < 3; ++c) {
+          const unsigned premul = acc[c] / total;
+          o[c] = (uint8_t)(alpha ? (premul * 255 / alpha > 255 ? 255 : premul * 255 / alpha) : 0);
+        }
+        o[3] = (uint8_t)alpha;
+      }
+    }
+    memcpy(px, s_tmp, (size_t)w * h * 4);
+  }
+}
+
+static void Saturate(uint8_t *px, size_t count, float amount) {
+  for (size_t i = 0; i < count; ++i, px += 4) {
+    const float grey = 0.299f * px[0] + 0.587f * px[1] + 0.114f * px[2];
+    for (int c = 0; c < 3; ++c) {
+      float v = grey + (px[c] - grey) * amount;
+      px[c] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    }
+  }
+}
+
+/* SNES look: blocks of `block` HD pixels, 15-bit colour, hard alpha and a
+ * one-block dark outline. */
+static void Retro(uint8_t *px, unsigned w, unsigned h, unsigned block) {
+  if (block < 1) block = 1;
+  const unsigned bw = (w + block - 1) / block, bh = (h + block - 1) / block;
+  if (!Scratch((size_t)bw * bh * 4)) return;
+  uint8_t *cells = s_tmp;
+  for (unsigned by = 0; by < bh; ++by) {
+    for (unsigned bx = 0; bx < bw; ++bx) {
+      unsigned acc[4] = {0, 0, 0, 0}, n = 0;
+      for (unsigned y = by * block; y < (by + 1) * block && y < h; ++y)
+        for (unsigned x = bx * block; x < (bx + 1) * block && x < w; ++x) {
+          const uint8_t *p = px + ((size_t)y * w + x) * 4;
+          for (int c = 0; c < 3; ++c) acc[c] += (unsigned)p[c] * p[3];
+          acc[3] += p[3];
+          ++n;
+        }
+      uint8_t *cell = cells + ((size_t)by * bw + bx) * 4;
+      const bool solid = n && acc[3] / n >= 128;
+      for (int c = 0; c < 3; ++c) {
+        const unsigned v = acc[3] ? acc[c] / acc[3] : 0;
+        cell[c] = (uint8_t)((v & 0xF8) | (v >> 5)); /* 5 bits per channel */
+      }
+      cell[3] = solid ? 255 : 0;
+    }
+  }
+  /* Outline: an empty cell touching a solid one becomes dark brown. */
+  for (unsigned by = 0; by < bh; ++by)
+    for (unsigned bx = 0; bx < bw; ++bx) {
+      uint8_t *cell = cells + ((size_t)by * bw + bx) * 4;
+      if (cell[3] == 255) continue;
+      static const int d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+      for (int k = 0; k < 4; ++k) {
+        const int nx = (int)bx + d[k][0], ny = (int)by + d[k][1];
+        if (nx < 0 || ny < 0 || nx >= (int)bw || ny >= (int)bh) continue;
+        const uint8_t *nb = cells + ((size_t)ny * bw + (size_t)nx) * 4;
+        if (nb[3] == 255) {
+          cell[0] = 24; cell[1] = 16; cell[2] = 8; cell[3] = 254; /* not a neighbour source */
+          break;
+        }
+      }
+    }
+  for (unsigned y = 0; y < h; ++y)
+    for (unsigned x = 0; x < w; ++x) {
+      uint8_t *p = px + ((size_t)y * w + x) * 4;
+      const uint8_t *cell = cells + ((size_t)(y / block) * bw + x / block) * 4;
+      memcpy(p, cell, 4);
+      if (p[3] == 254) p[3] = 255;
+    }
+}
+
+/* Darkens the HD rows that fall between the native scanlines, so the
+ * character shares the CRT pass's line structure. */
+static void Scanlines(uint8_t *px, unsigned w, unsigned h, float top, float scale) {
+  const float inv = 1.0f / scale;
+  for (unsigned y = 0; y < h; ++y) {
+    const float ny = top + ((float)y + 0.5f) * inv;
+    const float frac = ny - floorf(ny);
+    if (frac < 0.55f) continue;
+    uint8_t *p = px + (size_t)y * w * 4;
+    for (unsigned x = 0; x < w; ++x, p += 4)
+      for (int c = 0; c < 3; ++c) p[c] = (uint8_t)(p[c] * 0.68f);
+  }
+}
+
+static void ApplyStyle(uint8_t *px, unsigned w, unsigned h, float top, float scale) {
+  switch (s_style) {
+    case kDkc2HdStyleSoft:
+      Soften(px, w, h);
+      Saturate(px, (size_t)w * h, 0.9f);
+      break;
+    case kDkc2HdStyleRetro:
+      Retro(px, w, h, (unsigned)(scale / 2.0f + 0.5f));
+      break;
+    case kDkc2HdStyleCrt:
+      Soften(px, w, h);
+      Scanlines(px, w, h, top, scale);
+      break;
+    default:
+      break;
+  }
+}
+
+void Dkc2HdSetStyle(int style) {
+  s_style = style >= kDkc2HdStyleHd && style < kDkc2HdStyleCount ? style : kDkc2HdStyleHd;
+}
+int Dkc2HdStyle(void) { return s_style; }
+void Dkc2HdSetSize(float size) { s_size = size >= 0.5f && size <= 2.0f ? size : 1.0f; }
+float Dkc2HdSize(void) { return s_size; }
+
+int Dkc2HdStyleFromName(const char *name) {
+  static const char *const names[kDkc2HdStyleCount] = {"hd", "doux", "retro", "crt"};
+  for (int i = 0; name && i < kDkc2HdStyleCount; ++i)
+    if (strcmp(name, names[i]) == 0) return i;
+  return kDkc2HdStyleHd;
+}
+
 void Dkc2HdFinishFrame(const Ppu *ppu) {
   s_sprite_count = 0;
   if (!ppu || (ppu->inidisp & 0x80)) return;
@@ -405,7 +566,7 @@ void Dkc2HdFinishFrame(const Ppu *ppu) {
       s_out[a] = grown;
       s_out_capacity[a] = needed;
     }
-    const float inv = 1.0f / s_pack.scale;
+    const float inv = 1.0f / EffectiveScale();
     for (unsigned v = 0; v < f->height; ++v) {
       const int ny = (int)floorf(actor->top + ((float)v + 0.5f) * inv);
       const bool row_ok = ny >= 0 && ny < 224;
@@ -422,6 +583,7 @@ void Dkc2HdFinishFrame(const Ppu *ppu) {
         dst[3] = visible ? src[3] : 0;
       }
     }
+    ApplyStyle(s_out[a], f->width, f->height, actor->top, EffectiveScale());
     Dkc2OverlaySprite *sprite = &s_sprites[s_sprite_count++];
     sprite->rgba = s_out[a];
     sprite->width = f->width;

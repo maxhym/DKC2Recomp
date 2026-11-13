@@ -198,6 +198,65 @@ static void TestToggle(void) {
   CHECK(Dkc2HdReplaces(0));
 }
 
+/* Styles work on the composited frame; the pack is never modified. */
+static void TestStyles(void) {
+  static uint8_t pack[4096];
+  CHECK(Dkc2HdLoadBytes(pack, BuildPack(pack, kDkc2HdFlagReplaceDiddy)));
+  CHECK(Dkc2HdStyleFromName("retro") == kDkc2HdStyleRetro);
+  CHECK(Dkc2HdStyleFromName("crt") == kDkc2HdStyleCrt);
+  CHECK(Dkc2HdStyleFromName("nonsense") == kDkc2HdStyleHd);
+  Ppu *ppu = NewPpu();
+  uint8_t slots[128] = {0};
+  slots[5] = 1;
+  Dkc2HdActorInput in = Actor(slots, 3u << 12);
+
+  Dkc2HdSetStyle(kDkc2HdStyleHd);
+  Dkc2HdBeginFrame(500);
+  Dkc2HdBeginFrame(501);
+  const Dkc2OverlaySprite *s = Render(ppu, &in, 502);
+  CHECK(s && s->w == 2.0f);
+  const float hd_width = s ? s->w : 0;
+
+  /* Size: half size draws the same frame on half the native area. */
+  Dkc2HdSetSize(0.5f);
+  s = Render(ppu, &in, 503);
+  CHECK(s && s->w == hd_width * 0.5f && s->h == 1.0f);
+  Dkc2HdSetSize(9.0f); /* out of range: back to 1.0 */
+  CHECK(Dkc2HdSize() == 1.0f);
+
+  /* Retro: hard alpha, 15-bit colours. */
+  Dkc2HdSetStyle(kDkc2HdStyleRetro);
+  s = Render(ppu, &in, 504);
+  bool hard = s != NULL, five_bit = s != NULL;
+  for (int i = 0; s && i < s->width * s->height; ++i) {
+    const uint8_t *p = s->rgba + i * 4;
+    if (p[3] != 0 && p[3] != 255) hard = false;
+    if (p[3] && ((p[0] & 7) != (p[0] >> 5))) five_bit = false;
+  }
+  CHECK(hard && five_bit);
+
+  /* CRT: rows between native scanlines are darker than the others. */
+  Dkc2HdSetStyle(kDkc2HdStyleCrt);
+  s = Render(ppu, &in, 505);
+  unsigned bright = 0, dark = 0;
+  for (int y = 0; s && y < s->height; ++y) {
+    const uint8_t *p = s->rgba + ((size_t)y * s->width + s->width / 2) * 4;
+    if (!p[3]) continue;
+    if (p[0] > 200) ++bright; else if (p[0] < 190) ++dark;
+  }
+  CHECK(bright > 0 && dark > 0);
+
+  /* Soft: alpha gains intermediate values on the edges. */
+  Dkc2HdSetStyle(kDkc2HdStyleSoft);
+  s = Render(ppu, &in, 506);
+  bool partial = false;
+  for (int i = 0; s && i < s->width * s->height; ++i)
+    if (s->rgba[i * 4 + 3] > 0 && s->rgba[i * 4 + 3] < 255) partial = true;
+  CHECK(partial);
+  Dkc2HdSetStyle(kDkc2HdStyleHd);
+  free(ppu);
+}
+
 static void TestRealPack(const char *path) {
   if (!path) return;
   CHECK(Dkc2HdLoad(path));
@@ -210,6 +269,7 @@ int main(int argc, char **argv) {
   TestClassifier();
   TestCompositing();
   TestToggle();
+  TestStyles();
   TestInactive();
   TestRealPack(argc > 1 ? argv[1] : NULL);
   if (failures) {

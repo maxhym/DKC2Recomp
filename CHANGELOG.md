@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- HD Kong styles and size, applied at run time without touching the pack:
+  `DKC2_HD_STYLE` (hd, doux, retro with 15-bit colour, coarser pixels and an
+  outline, crt with native-scanline shading) and `DKC2_HD_SIZE` (percent).
 - Added an experimental HD replacement Kong. An original character pack
   (`mods/mandro-hd`, Mandro the mandrill) is built beside the desktop hosts
   and drawn over Diddy's slot at window resolution through the OpenGL

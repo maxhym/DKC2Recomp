@@ -55,10 +55,26 @@ partner, team-up and handoff, and every animation listed in
 | `DKC2_HD_SCALE=4` | HD pixels per SNES pixel; larger draws smaller. |
 | `DKC2_HD_FLIP=1` | Invert the facing if Mandro looks backwards. |
 | `DKC2_HD_REPLACE=diddy\|dixie\|both` | Which slot(s) Mandro replaces. |
+| `DKC2_HD_STYLE=hd\|doux\|retro\|crt` | Presentation style (below). |
+| `DKC2_HD_SIZE=100` | Size in percent of the pack's (50 to 200). |
 | `DKC2_HD_TRACE=1` | Log each animation change with the grounded/rising flags. |
 
 The GDI fallback presenter has no OpenGL and therefore shows the native
 sprite.
+
+## Styles
+
+Styles run on each composited frame, after the occlusion cut, so the pack
+itself never changes:
+
+- `hd`: the frames as drawn.
+- `doux`: a 1-2-1 blur of premultiplied colour and 10 % less saturation.
+- `retro`: blocks of half the pack scale (2x2 HD pixels at scale 4), 15-bit
+  colour like the SNES palette, hard alpha and a one-block dark outline.
+- `crt`: softened, with the HD rows that fall in the lower part of each native
+  scanline darkened so the character shares the CRT pass's line structure.
+
+DKCountry's settings page sets the style and size at launch.
 
 ## Pack format (`.dkc2hd`, little-endian)
 

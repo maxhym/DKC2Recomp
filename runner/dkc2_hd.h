@@ -34,6 +34,21 @@ enum {
   kDkc2HdAnimCount = 5,
 };
 
+/* Presentation styles, applied to each composited frame at run time. */
+enum {
+  kDkc2HdStyleHd = 0,    /* the pack's frames as drawn */
+  kDkc2HdStyleSoft = 1,  /* softened edges, slightly muted colours */
+  kDkc2HdStyleRetro = 2, /* 15-bit colour, coarser pixels, dark outline */
+  kDkc2HdStyleCrt = 3,   /* softened and darkened between native scanlines */
+  kDkc2HdStyleCount = 4,
+};
+void Dkc2HdSetStyle(int style);
+int Dkc2HdStyle(void);
+int Dkc2HdStyleFromName(const char *name);
+/* Size relative to the pack (0.5 to 2.0, 1.0 by default). */
+void Dkc2HdSetSize(float size);
+float Dkc2HdSize(void);
+
 enum {
   kDkc2HdFlagFacesLeft = 1,
   kDkc2HdFlagReplaceDiddy = 2,
@@ -48,7 +63,9 @@ const char *Dkc2HdStatus(void);
 /* Loads DKC2_HD_PACK or mods/kong-hd.dkc2hd; DKC2_HD=0 disables HD.
  * Tuning without rebuilding the pack: DKC2_HD_OFFSET="dx,dy" (native px),
  * DKC2_HD_SCALE (HD px per native px), DKC2_HD_FLIP=1 (mirror the facing),
- * DKC2_HD_REPLACE=diddy|dixie|both, DKC2_HD_TRACE=1 (log animation changes). */
+ * DKC2_HD_REPLACE=diddy|dixie|both, DKC2_HD_TRACE=1 (log animation changes),
+ * DKC2_HD_STYLE=hd|doux|retro|crt (presentation style) and DKC2_HD_SIZE=percent
+ * (50-200, character size relative to the pack's). */
 void Dkc2HdInitialize(void);
 void Dkc2HdSetEnabled(bool enabled);
 /* Flips HD on/off (bound to F8 in the desktop hosts); returns the new state. */
