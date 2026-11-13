@@ -10,7 +10,8 @@ Nintendo or Rare content and none of these frames was derived from the game.
   lively idle, three
   fidgets (chest beat, scratching, looking around), roll, carrying overhead,
   rope hang, climb up and down, horizontal rope, swim, hit, riding, victory
-  and throw. Poles and bars are green so the keying removes them.
+  and throw, then carrying and pushing an object held in front of the chest.
+  The drop to all fours comes from the start of the walk clip. Poles and bars are green so the keying removes them.
 * Frames: cut, keyed and aligned by `scripts/extract_hd_kong_frames.py`.
   `pack.json` was written by that script and its durations and native-only
   animation list may be edited by hand.

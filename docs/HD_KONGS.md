@@ -23,10 +23,15 @@ textured quad in their place.
    clip holds the last jump frame. A run only drops back to a walk well below
    the speed that started it, and walk and run keep their place in the stride
    when one replaces the other. Every change of pose cross-fades from the last
-   frame shown over 5 ticks.
+   frame shown over 9 ticks, eased. Between a standing pose and the
+   four-legged gaits the `stand_to_fours` clip plays first, forwards or
+   backwards.
 3. After each main-screen line the PPU hook `Dkc2HdObserveMainLine` marks the
-   pixels where a layer of higher priority than the Kong's OBJ priority
-   (`priority * 4 + 2`) is drawn: foreground leaves, pipes, water fronts.
+   pixels where a background layer of higher priority than the Kong's OBJ
+   priority (`priority * 4 + 2`) is drawn: foreground leaves, pipes, water
+   fronts. Other sprites never cover the Kong: between sprites the OAM order
+   decides, not the priority bits (an animal buddy carries higher bits than
+   its rider and would otherwise hide him).
 4. `Dkc2HdFinishFrame` composites the HD frame with those pixels cut out,
    applies master brightness and hides the sprite during forced blank.
 5. The shared OpenGL pipeline (`Dkc2GlPipelineRender`, used by the native
@@ -71,19 +76,26 @@ Slots 0-4 (idle, walk, run, jump, fall) come from the motion classifier. A
 pack may add: `fidget`, `fidget2`, `fidget3` (one plays after 5 s standing
 still; they take turns), `roll`, `carry_idle`/`carry_walk` (holding a barrel
 or object; the game still draws the barrel), `climb_idle`/`climb_move`/
-`climb_down`, `hang` (horizontal rope), `swim`, `hurt`, `ride`, `victory` and
-`throw`. For each frame the engine picks, in order: `ride` for the rider on an
+`climb_down`, `hang` (horizontal rope), `swim`, `hurt`, `ride`, `victory`,
+`throw`, `carry_front_idle`/`carry_front_walk`/`throw_front` (an object held
+in front of the chest, as Diddy and Dixie do; the overhead carry slots serve
+Donkey Kong in DKC1Recomp), `stand_to_fours`, `hang_idle` (hanging still
+from a horizontal rope or a hook) and `climb_wide_idle`/`climb_wide_move`
+(spread between two ropes, seen from behind). Hanging poses are placed on
+the top edge of the native sprite's box and two-rope poses on its middle:
+on a hook the native Kong hangs below its origin, so the origin's feet row
+would draw the pose standing on the hook. For each frame the engine picks, in order: `ride` for the rider on an
 animal; the slot the pack's `animationIds` map assigns to the native animation
 ID; `hurt` in knock-out states `$24/$25/$59`; the carry slots while the leader
 holds an object other than its partner; a fidget; then motion. Missing slots
 fall back (carry walk to carry idle, climb down to climb move to climb idle,
 hang to climb idle, others to idle), and moments with no slot keep the native
 sprite as before. Known rope IDs: single rope `$2F` hang, `$30` up, `$31` down, `$32`
-turn; double rope `$34/$35` transitions, `$36` hang, `$37` up, `$38` down;
-horizontal rope `$39/$3A`. Other Diddy-slot IDs Mandro's pack maps: `$09`
+turn; double rope `$34/$35` transitions, `$36` hang, `$37` up, `$38` down
+(the two-rope slots); horizontal rope `$39` still, `$3A` moving. Other Diddy-slot IDs Mandro's pack maps: `$09`
 roll, `$0A` death and `$29/$2A` hurt (hurt pose), `$0F-$13` and `$15-$18`
-carrying (pickup, idle, walk `$11`, turn, drop, jump, air, fall, land), `$14`
-carry throw, `$2B` honey wall (rope hang pose), `$42` hook (horizontal hang),
+carrying in front (pickup, idle, walk `$11`, turn, drop, jump, air, fall,
+land), `$14` front throw, `$2B` honey wall (rope hang pose), `$42` hook (horizontal hang),
 `$43/$44` and `$A3` swimming, `$45` celebration, `$46` level-end run and `$4E`
 skull cart (ride pose). Dixie's IDs are the same plus `$A3`; the engine
 subtracts that offset. `DKC2_HD_TRACE=1` prints every native animation ID and

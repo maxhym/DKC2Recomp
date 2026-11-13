@@ -160,6 +160,15 @@ static void TestCompositing(void) {
   CHECK(s->rgba[(2 * 8 + 6) * 4 + 3] == 0);
   const uint32_t serial = s->serial;
 
+  /* Another sprite at that column, even with higher priority bits (an
+   * animal buddy under its rider), does not cover the Kong. */
+  ppu->bgBuffers[0].data[100 + kPpuExtraLeftRight] = 0xe085;
+  s = Render(ppu, &in, 101);
+  CHECK(s && s->rgba[(2 * 8 + 6) * 4 + 3] == 255);
+  ppu->bgBuffers[0].data[100 + kPpuExtraLeftRight] = 0xc000;
+  s = Render(ppu, &in, 101);
+  CHECK(s && s->rgba[(2 * 8 + 6) * 4 + 3] == 0);
+
   /* A higher OBJ priority puts the Kong in front of the tree. */
   in.properties = 3u << 12;
   s = Render(ppu, &in, 101);
@@ -207,12 +216,15 @@ static void TestCrossFade(void) {
   CHECK(s && s->width == 8 && s->height == 8);
   /* Left half: only the old red frame, fading out. */
   CHECK(s && s->rgba[0] == 255 && s->rgba[3] > 200 && s->rgba[3] < 255);
-  /* Right half: mostly red still, some blue, fully opaque. */
+  /* Right half: red still, fully opaque; the change starts gently. */
   const uint8_t *right = s ? s->rgba + 6 * 4 : NULL;
-  CHECK(right && right[3] == 255 && right[0] > right[2] && right[2] > 20);
+  CHECK(right && right[3] == 255 && right[0] > 230 && right[2] > 0);
   for (uint32_t t = 302; t < 306; ++t) s = Render(ppu, &in, t);
-  CHECK(s && s->rgba[3] > 0 && s->rgba[3] < 60);         /* nearly gone */
-  s = Render(ppu, &in, 306);
+  right = s ? s->rgba + 6 * 4 : NULL;                    /* half-way: both poses */
+  CHECK(right && right[3] == 255 && right[0] > 90 && right[2] > 90);
+  for (uint32_t t = 306; t < 310; ++t) s = Render(ppu, &in, t);
+  CHECK(s && s->rgba[3] > 0 && s->rgba[3] < 30);         /* nearly gone */
+  s = Render(ppu, &in, 310);
   CHECK(s && s->rgba[3] == 0 && s->rgba[6 * 4 + 2] == 255 && s->rgba[6 * 4 + 0] == 0);
   free(ppu);
 }
@@ -307,7 +319,8 @@ static void TestExtendedSlots(void) {
   CHECK(Shown(&in, t++) == kDkc2HdHurt);
   in.state = 0;
   in.carrying = true;
-  CHECK(Shown(&in, t++) == kDkc2HdCarryIdle);
+  /* Diddy holds objects in front; without that clip the overhead one shows. */
+  CHECK(Shown(&in, t++) == kDkc2HdCarryFrontIdle);
   in.carrying = false;
   /* Standing still long enough plays a fidget once, then idles again; the
    * fidget slots take turns. */
@@ -338,6 +351,123 @@ static void TestExtendedSlots(void) {
   CHECK(!Dkc2HdLoadBytes(pack, 40));
   Put16(pack + 22, 99);
   CHECK(!Dkc2HdLoadBytes(pack, size));
+}
+
+/* Three opaque 8x8 frames (red, blue, green): idle = red, walk = blue,
+ * stand_to_fours = green for 6 ticks, once; hang and climb_wide_idle = blue,
+ * mapped from native animations $39 and $36. */
+static size_t BuildPackTurn(uint8_t *out) {
+  const unsigned frames = 3, anims = kDkc2HdAnimCount, steps = 3;
+  memset(out, 0, 4096);
+  memcpy(out, "DKC2HD02", 8);
+  Put16(out + 8, kDkc2HdFlagReplaceDiddy);
+  Put16(out + 10, 4 * 256);
+  Put16(out + 16, frames);
+  Put16(out + 18, steps);
+  Put16(out + 22, anims);
+  Put16(out + 24, 2); /* map entries */
+  const unsigned slot_step[][3] = {{kDkc2HdIdle, 0, 1}, {kDkc2HdWalk, 1, 1},
+                                   {kDkc2HdStandToFours, 2, 0}, {kDkc2HdHang, 1, 1},
+                                   {kDkc2HdClimbWideIdle, 1, 1}};
+  for (unsigned i = 0; i < 5; ++i) {
+    uint8_t *r = out + 32 + slot_step[i][0] * 8;
+    Put16(r, slot_step[i][1]);
+    Put16(r + 2, 1);
+    Put16(r + 4, slot_step[i][2]);
+  }
+  size_t c = 32 + anims * 8;
+  for (unsigned i = 0; i < steps; ++i, c += 4) {
+    Put16(out + c, i);
+    Put16(out + c + 2, i == 2 ? 6 : 4);
+  }
+  Put16(out + c, 0x39); Put16(out + c + 2, kDkc2HdHang); c += 4;
+  Put16(out + c, 0x36); Put16(out + c + 2, kDkc2HdClimbWideIdle); c += 4;
+  const size_t table = c;
+  size_t pixels = table + frames * 12;
+  for (unsigned f = 0; f < frames; ++f) {
+    uint8_t *e = out + table + f * 12;
+    Put16(e, 8); Put16(e + 2, 8); Put16(e + 4, 4); Put16(e + 6, 8);
+    Put32(e + 8, (uint32_t)pixels);
+    for (unsigned i = 0; i < 64; ++i) {
+      uint8_t *px = out + pixels + i * 4;
+      px[f == 1 ? 2 : f == 2 ? 1 : 0] = 255;
+      px[3] = 255;
+    }
+    pixels += 64 * 4;
+  }
+  return pixels;
+}
+
+/* Standing to walking goes through the stand-to-fours clip, and back
+ * through the same clip reversed. */
+static void TestStandToFours(void) {
+  static uint8_t pack[4096];
+  CHECK(Dkc2HdLoadBytes(pack, BuildPackTurn(pack)));
+  Ppu *ppu = NewPpu();
+  for (unsigned i = 0; i < kPpuBufWidth; ++i) ppu->bgBuffers[0].data[i] = 0x7100;
+  uint8_t slots[128] = {0};
+  Dkc2HdActorInput in = Actor(slots, 3u << 12);
+  uint32_t t = 500;
+  Dkc2HdBeginFrame(t++);
+  Dkc2HdBeginFrame(t++);
+  const Dkc2OverlaySprite *s = NULL;
+  for (unsigned i = 0; i < 6; ++i) s = Render(ppu, &in, t++);
+  CHECK(s && s->rgba[0] == 255 && s->rgba[1] == 0 && s->rgba[2] == 0);   /* idle */
+  /* Start walking: green shows up before any blue takes over. */
+  unsigned green_ticks = 0, first_blue = 0;
+  for (unsigned i = 1; i <= 40; ++i) {
+    in.world_x += 1;
+    s = Render(ppu, &in, t++);
+    if (!s) continue;
+    if (s->rgba[1] > 128) ++green_ticks;
+    if (!first_blue && s->rgba[2] > 128) first_blue = i;
+  }
+  CHECK(Dkc2HdActorAnimation(0) == kDkc2HdWalk);
+  CHECK(green_ticks >= 4);
+  CHECK(first_blue > green_ticks);
+  CHECK(s && s->rgba[2] == 255 && s->rgba[1] == 0);                       /* walking */
+  /* Stop: green again on the way back up, then red. */
+  green_ticks = 0;
+  for (unsigned i = 0; i < 40; ++i) {
+    s = Render(ppu, &in, t++);
+    if (s && s->rgba[1] > 128) ++green_ticks;
+  }
+  CHECK(Dkc2HdActorAnimation(0) == kDkc2HdIdle);
+  CHECK(green_ticks >= 4);
+  CHECK(s && s->rgba[0] == 255 && s->rgba[1] == 0 && s->rgba[2] == 0);
+  free(ppu);
+}
+
+/* Hanging poses hang from the top of the native sprite's box and poses
+ * between two ropes sit on its middle, wherever the origin is. */
+static void TestBoxPlacement(void) {
+  static uint8_t pack[4096];
+  CHECK(Dkc2HdLoadBytes(pack, BuildPackTurn(pack)));
+  Ppu *ppu = NewPpu();
+  for (unsigned i = 0; i < kPpuBufWidth; ++i) ppu->bgBuffers[0].data[i] = 0x7100;
+  uint8_t slots[128] = {0};
+  Dkc2HdActorInput in = Actor(slots, 3u << 12);
+  in.has_bounds = true;
+  in.bounds_left = 110; in.bounds_right = 130;
+  in.bounds_top = 50; in.bounds_bottom = 80;
+  Dkc2HdBeginFrame(698);
+  Dkc2HdBeginFrame(699);
+  /* A ground pose ignores the box. */
+  const Dkc2OverlaySprite *s = Render(ppu, &in, 700);
+  CHECK(s && s->x == 99.0f && s->y == 98.0f);
+  in.animation = 0x39;
+  for (uint32_t t = 701; t < 715; ++t) s = Render(ppu, &in, t);
+  CHECK(Dkc2HdActorAnimation(0) == kDkc2HdHang);
+  CHECK(s && s->x == 119.0f && s->y == 50.0f);     /* top edge, centred */
+  in.animation = 0x36;
+  for (uint32_t t = 715; t < 730; ++t) s = Render(ppu, &in, t);
+  CHECK(Dkc2HdActorAnimation(0) == kDkc2HdClimbWideIdle);
+  CHECK(s && s->x == 119.0f && s->y == 64.0f);     /* middle on middle */
+  /* Without a box the origin is used, as before. */
+  in.has_bounds = false;
+  for (uint32_t t = 730; t < 745; ++t) s = Render(ppu, &in, t);
+  CHECK(s && s->x == 99.0f && s->y == 98.0f);
+  free(ppu);
 }
 
 /* Styles work on the composited frame; the pack is never modified. */
@@ -413,6 +543,8 @@ int main(int argc, char **argv) {
   TestToggle();
   TestStyles();
   TestCrossFade();
+  TestStandToFours();
+  TestBoxPlacement();
   TestExtendedSlots();
   TestInactive();
   TestRealPack(argc > 1 ? argv[1] : NULL);
