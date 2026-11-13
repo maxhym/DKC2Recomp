@@ -502,3 +502,14 @@ Exit criterion: reach and render the title screen with correct audio and input.
       totals, level changes, knockouts versus deaths, pit deaths and demos.
 - [ ] Record stomps outside simultaneous co-op and identify the life counter
       so deaths no longer depend on the knockout heuristic.
+
+## HD replacement Kong
+
+- [x] Presentation-only HD Kong layer with occlusion, toggle and tuning
+      variables; original Mandro pack (idle, walk, run, jump, fall).
+- [ ] Check Mandro in game: anchor offset, facing, grounded/rising bits.
+- [ ] List the remaining animation IDs that must stay native (swim, climb,
+      cartwheel, hair spin, roll) or add HD clips for them.
+- [ ] Apply water tint and colour math to the HD sprite; follow the CRT
+      curvature.
+

@@ -12,6 +12,8 @@
 #include "dkc2_game.h"
 #include "dkc2_coop.h"
 #include "dkc2_telemetry.h"
+#include "dkc2_hd.h"
+#include "desktop_present_sdl.h"
 #include "dkc2_video.h"
 #include "diagnostics.h"
 #include "desktop_filter.h"
@@ -315,6 +317,11 @@ static LRESULT CALLBACK WindowProcedure(HWND window, UINT message,
       return 0;
     }
 
+  }
+  if (message == WM_KEYDOWN && wparam == VK_F8 && !(lparam & (1LL << 30)) &&
+      Dkc2HdReady() && !Dkc2DesktopOverlayIsOpen(s_overlay)) {
+    (void)Dkc2HdToggle(); /* compare the HD Kong with the original sprite */
+    return 0;
   }
   if (Dkc2DesktopOverlayProcessWin32Message(
           s_overlay, window, message, (uintptr_t)wparam, (intptr_t)lparam))
@@ -919,6 +926,7 @@ static int RunDesktop(const char *rom_path,
   (void)snesrecomp_anchor_to_exe_dir();
 
   Dkc2KongsInitialize();
+  Dkc2GlPipelineSetSpriteSource(Dkc2HdSprites);
   Dkc2MusicInitialize();
   RtlRegisterGame(Dkc2GameInfo());
   if (!SnesInit(rom, (int)rom_size)) {

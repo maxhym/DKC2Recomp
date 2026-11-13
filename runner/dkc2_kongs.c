@@ -1,4 +1,5 @@
 #include "dkc2_kongs.h"
+#include "dkc2_hd.h"
 #include "snes/ppu.h"
 
 #include <stdio.h>
@@ -302,6 +303,7 @@ bool Dkc2KongsSaveSettings(void) {
   return fclose(f) == 0 && ok;
 }
 void Dkc2KongsInitialize(void) {
+  Dkc2HdInitialize();
   FILE *f = fopen("kongs.cfg", "r");
   char path[4096] = "mods/project-kongs.dkc2kongs";
   if (f) {
@@ -837,7 +839,8 @@ static bool MatchLayout(const Ppu *ppu, KongActor *actor,
 void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
                       size_t rom_size, uint32_t tick) {
   memset(s_actors, 0, sizeof s_actors);
-  if (!Dkc2KongsReady() || !ppu || !ram || !rom || rom_size != 0x400000 ||
+  Dkc2HdBeginFrame(tick);
+  if ((!Dkc2KongsReady() && !Dkc2HdEnabled()) || !ppu || !ram || !rom || rom_size != 0x400000 ||
       Read16(ram + 0x24) != 0x8819 || Read16(ram + 0x96) == 11 ||
       PPU_mode(ppu) != 1) {
     memset(s_rider_clocks, 0, sizeof s_rider_clocks);
@@ -887,18 +890,28 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
     if (type != 0xe4 && type != 0xe8 && !rider) continue;
     const unsigned who = rider ? animation >= 0xa4 : type == 0xe8;
     KongActor *actor = &s_actors[who];
-    if (!s_choices[who] || actor->frame) continue;
+    if ((!s_choices[who] && !Dkc2HdReplaces(who)) || actor->frame) continue;
     if (who) {
       if (animation < 0xa4) continue;
       animation -= 0xa3;
     }
+    /* HD replacement covers ordinary on-foot play; riding, team-ups, tag
+     * handoffs, carrying and the pack's native-only states keep native art. */
+    const unsigned held = Read16(ram + 0xd7a);
+    const bool hd = !rider && Dkc2HdReplaces(who) &&
+        Dkc2HdAllowsState(animation, Read16(ram + a + 0x2e)) &&
+        !(team_animation && (a == leader || a == partner)) &&
+        !(handoff && (a == handoff || a == partner)) &&
+        held != a && !(held && a == leader);
+    if (!hd && !s_choices[who]) continue;
     int rider_dx = 0, rider_dy = 0;
-    const KongFrame *frame = rider ? MountedFrame(who, a, type, ram, tick, &rider_dx, &rider_dy) :
-                                    ActorFrame(who, a, animation, tick);
-    if (team_animation && a == partner)
+    const KongFrame *frame = hd ? NULL :
+        rider ? MountedFrame(who, a, type, ram, tick, &rider_dx, &rider_dy) :
+                ActorFrame(who, a, animation, tick);
+    if (!hd && team_animation && a == partner)
       frame = TeamTopFrame((unsigned)s_choices[who], (unsigned)s_choices[bottom_slot],
                            team_animation, team_phase);
-    if (handoff && (a == handoff || a == partner)) {
+    if (!hd && handoff && (a == handoff || a == partner)) {
       if (handoff_phase < handoff_release) {
         const unsigned semantic = a == handoff ? 176 : 177;
         const unsigned duration = SequenceDuration((unsigned)s_choices[who], semantic);
@@ -909,7 +922,7 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
     }
     if (rider) rider_seen[who] = true;
     const unsigned graphic = Read16(ram + a + 0x18);
-    if (!frame || !graphic || graphic >= 0x35a0 || (graphic & 3)) continue;
+    if ((!frame && !hd) || !graphic || graphic >= 0x35a0 || (graphic & 3)) continue;
     const uint8_t *entry = rom + 0x3c8000 + graphic;
     const size_t address = (Read16(entry) | (uint32_t)entry[2] << 16) & 0x3fffff;
     if (address + 8 > rom_size) continue;
@@ -952,6 +965,22 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
         }
       }
     }
+    if (matched && hd) {
+      Dkc2HdActorInput input;
+      input.screen_x = actor->x;
+      input.screen_y = actor->y;
+      input.world_x = (int16_t)Read16(ram + a + 6);
+      input.world_y = (int16_t)Read16(ram + a + 10);
+      input.properties = actor->properties;
+      /* Ground-contact bits and the vertical velocity sign, as used by the
+       * co-op layer's thrown-partner landing check. */
+      input.grounded = (Read16(ram + a + 0x1e) & 0x0101) != 0;
+      input.rising = (Read16(ram + a + 0x24) & 0x8000) != 0;
+      input.slots = actor->slots;
+      Dkc2HdSetActor(who, &input);
+      memset(actor, 0, sizeof *actor);
+      continue;
+    }
     if (matched) {
       actor->frame = frame;
       if (rider) {
@@ -963,7 +992,7 @@ void Dkc2KongsPrepare(Ppu *ppu, const uint8_t *ram, const uint8_t *rom,
     if (getenv("DKC2_KONGS_TRACE"))
       fprintf(stderr, "kongs tick=%u slot=%u animation=%u graphic=%04x matched=%u/%u active=%d rider=%d pose=%04x offset=%d,%d origin=%d,%d\n",
               tick, who, animation, graphic, matched ? slots : 0, slots, actor->frame != NULL,
-              rider, frame->id, rider_dx, rider_dy, actor->x, actor->y);
+              rider, frame ? frame->id : 0, rider_dx, rider_dy, actor->x, actor->y);
   }
   if (team_animation && s_actors[bottom_slot].frame && s_actors[top_slot].frame) {
     KongActor *bottom = &s_actors[bottom_slot], *top = &s_actors[top_slot];
@@ -1006,6 +1035,7 @@ void Dkc2KongsEndLine(Ppu *ppu) {
 
 bool Dkc2KongsRenderOam(Ppu *ppu, int line, unsigned slot) {
   if (!ppu || slot >= 128) return false;
+  if (Dkc2HdOwnsSlot(slot)) return true; /* drawn by the host at HD */
   for (unsigned a = 0; a < 2; ++a) {
     const KongActor *actor = &s_actors[a];
     const KongFrame *frame = actor->frame;
@@ -1034,6 +1064,7 @@ bool Dkc2KongsRenderOam(Ppu *ppu, int line, unsigned slot) {
 
 int Dkc2KongsOamVisible(int line, unsigned slot) {
   if (slot >= 128) return -1;
+  if (Dkc2HdOwnsSlot(slot)) return 0;
   for (unsigned a = 0; a < 2; ++a) {
     const KongActor *actor = &s_actors[a];
     if (!actor->frame || !actor->slots[slot]) continue;

@@ -6400,3 +6400,41 @@ built because the generated sources need the private ROM. Unverified: the
 knockout-to-death mapping and pit deaths (a fall may not pass through those
 states), stomp counts outside simultaneous co-op (the existing counter only
 records them there), and behaviour over a real play session.
+
+## 2026-11-13 - HD replacement Kong (Mandro)
+
+Goal: replace a Kong with an original character drawn at higher resolution
+than the SNES sprite, without touching game logic. Downscaling generated art
+to the native sprite size was rejected because it removes the point of the
+higher-resolution art.
+
+Design: the host draws the character as a textured quad after the CRT/flat
+pass of `Dkc2GlPipelineRender`. To keep depth, the PPU line hook
+`Dkc2HdObserveMainLine` (a new `ProjectKongsPpu.cmake` patch after the
+main-screen `PpuDrawBackgrounds`) records, for each output pixel, whether a
+layer above the Kong's OBJ level (`priority * 4 + 2`) was drawn; those pixels
+of the HD frame are made transparent. The Kong's OAM slots are hidden through
+the existing Project Kongs `RenderOam`/`OamVisible` hooks, and the HD
+character only replaces moments the pack covers (idle, walk, run, jump,
+fall); riding, knockouts, carrying, team-up, handoff and listed animations
+fall back to the native sprite for that frame.
+
+Assets: Mandro was designed with an image model and animated from short
+side-view chroma-key clips. `scripts/extract_hd_kong_frames.py` keys, loops,
+aligns and scales them (161 frames on 256 px canvases, idle body 192 px, so
+about 4 HD pixels per SNES pixel); `scripts/build_hd_kong_pack.py` (standard
+library only) packs them as `mods/kong-hd.dkc2hd` after each desktop build.
+
+Verification: `test_dkc2_hd` (synthetic pack: loading and rejection,
+classifier, occlusion, priority, flip, brightness, forced blank, loop timing,
+F8 toggle) and `test_build_hd_kong_pack.py` pass, and `test_dkc2_hd` loads
+the real Mandro pack. The full CTest run has 51 of 52 passing; the only
+failure is the pre-existing `snesrecomp_interp_bridge` Linux link. The
+patched PPU copy compiles, `dkc2_hd.c` and `dkc2_kongs.c` compile with
+`-Werror`;
+`sdl_main.c` and `desktop_present_sdl.c` pass a GCC syntax check and
+`desktop_main.c` a MinGW one. Not verified, because the hosts need the
+private ROM: in-game placement and facing, the grounded/rising bits,
+which animation IDs still need to stay native, and frame pacing with the
+texture upload (one 256x256 upload per changed frame).
+

@@ -1827,3 +1827,16 @@ recompiler. `Dkc2TelemetryHostFrame` is called at the end of every frame from
 events through a sink callback, which is what the unit test drives. The
 protocol itself is owned by the DKCountry launcher repository
 (`docs/TELEMETRY_PROTOCOL.md`).
+
+## HD replacement Kong (2026-11-13)
+
+`runner/dkc2_hd.c` owns the HD pack, the motion classifier and the
+compositing; it depends only on the PPU structure. The data flow per frame
+is: `Dkc2KongsPrepare` (actor selection, `Dkc2HdSetActor`, OAM ownership) ->
+PPU lines (`Dkc2HdObserveMainLine` records occluded pixels) ->
+`Dkc2HdFinishFrame` from `dkc2_game.c` (CPU composite) -> presenter
+(`Dkc2GlPipelineSetSpriteSource(Dkc2HdSprites)`, one textured quad per
+replaced Kong after the CRT or flat pass). `runner/dkc2_sprite_overlay.h` is
+the only interface the presenters see, so other overlays can reuse it. See
+[HD_KONGS.md](HD_KONGS.md).
+

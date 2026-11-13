@@ -8,6 +8,7 @@
 #include "dkc2_game.h"
 #include "dkc2_coop.h"
 #include "dkc2_telemetry.h"
+#include "dkc2_hd.h"
 #include "dkc2_video.h"
 #include "diagnostics.h"
 #include "desktop_filter.h"
@@ -267,6 +268,12 @@ static void PumpEvents(SdlHost *host) {
       continue;
     }
 #endif
+    if (event.type == SDL_KEYDOWN && !event.key.repeat &&
+        event.key.keysym.scancode == SDL_SCANCODE_F8 && Dkc2HdReady() &&
+        !Dkc2DesktopOverlayIsOpen(host->overlay)) {
+      (void)Dkc2HdToggle(); /* compare the HD Kong with the original sprite */
+      continue;
+    }
     bool consumed =
         Dkc2DesktopOverlayProcessSdlEvent(host->overlay, &event);
     if (consumed) continue;
@@ -820,6 +827,7 @@ static int RunGame(const char *rom_path,
     return 2;
   }
   Dkc2KongsInitialize();
+  Dkc2GlPipelineSetSpriteSource(Dkc2HdSprites);
   Dkc2MusicInitialize();
   RtlRegisterGame(Dkc2GameInfo());
   if (!SnesInit(rom, (int)rom_size)) {

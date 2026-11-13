@@ -1,6 +1,7 @@
 #include "dkc2_game.h"
 #include "dkc2_coop.h"
 #include "dkc2_telemetry.h"
+#include "dkc2_hd.h"
 #include "dkc2_hdma.h"
 #include "dkc2_kongs.h"
 #include "dkc2_music.h"
@@ -2404,6 +2405,8 @@ void Dkc2DrawPpuFrame(void) {
       if (active[channel]) SimpleHdma_DoLine(&channels[channel]);
     }
   }
+  /* Presentation only: cut the HD Kongs against this frame's occluders. */
+  Dkc2HdFinishFrame(g_ppu);
   if (band_policies_active) {
     for (unsigned layer = 0; layer < 3; layer++) {
       PpuSetWidescreenLayerRepeatBand(g_ppu, (uint8_t)layer, 0, 0);
