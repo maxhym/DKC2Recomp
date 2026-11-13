@@ -13,7 +13,7 @@ enum {
   kMaxNativeOnly = 512,
   kMaxMap = 512,
   kFidgetDelay = 300, /* ticks standing still before a fidget */
-  kFadeTicks = 5,     /* cross-fade between two poses, about 80 ms */
+  kFadeTicks = 9,     /* cross-fade between two poses, about 150 ms */
   kMaxFrameSide = 1024,
   kMaskRows = 240,
 };
@@ -51,6 +51,9 @@ typedef struct HdShow {
   /* Cross-fade: the frame shown last tick, and the one being faded out. */
   const struct HdFrame *last_frame, *fade_from;
   uint32_t fade_start;
+  /* Upright to all fours (+1) or back (-1), while its clip plays. */
+  int turn;
+  uint32_t turn_start;
   bool valid;
 } HdShow;
 static HdShow s_show[2];
@@ -306,7 +309,8 @@ bool Dkc2HdHasRide(void) {
 
 bool Dkc2HdHasCarry(void) {
   return Dkc2HdEnabled() && (s_pack.animations[kDkc2HdCarryIdle].count ||
-                             s_pack.animations[kDkc2HdCarryWalk].count);
+                             s_pack.animations[kDkc2HdCarryWalk].count ||
+                             s_pack.animations[kDkc2HdCarryFrontIdle].count);
 }
 
 bool Dkc2HdAllowsState(unsigned animation, unsigned state) {
@@ -367,6 +371,9 @@ static int Resolve(int animation) {
     case kDkc2HdClimbMove: return Resolve(kDkc2HdClimbIdle);
     case kDkc2HdClimbDown: return Resolve(kDkc2HdClimbMove);
     case kDkc2HdHang: return Resolve(kDkc2HdClimbIdle);
+    case kDkc2HdCarryFrontWalk: return Resolve(kDkc2HdCarryFrontIdle);
+    case kDkc2HdCarryFrontIdle: return Resolve(kDkc2HdCarryIdle);
+    case kDkc2HdThrowFront: return Resolve(kDkc2HdThrow);
     case kDkc2HdFall: return s_pack.animations[kDkc2HdJump].count ? kDkc2HdJump : kDkc2HdIdle;
     default: return kDkc2HdIdle;
   }
@@ -397,6 +404,14 @@ static uint32_t Duration(int animation) {
 static bool IsFidget(int animation) {
   return animation == kDkc2HdFidget || animation == kDkc2HdFidget2 ||
          animation == kDkc2HdFidget3;
+}
+
+static bool IsUpright(int animation) {
+  return animation == kDkc2HdIdle || IsFidget(animation);
+}
+
+static bool IsOnFours(int animation) {
+  return animation == kDkc2HdWalk || animation == kDkc2HdRun;
 }
 
 /* The fidget slots the pack carries take turns. */
@@ -455,8 +470,9 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
   if (animation < 0 && IsHurtState(input->state) && s_pack.animations[kDkc2HdHurt].count)
     animation = kDkc2HdHurt;
   if (animation < 0 && input->carrying && Dkc2HdHasCarry())
-    animation = moving == kDkc2HdWalk || moving == kDkc2HdRun ? kDkc2HdCarryWalk
-                                                              : kDkc2HdCarryIdle;
+    /* Diddy and Dixie hold objects in front of them. */
+    animation = moving == kDkc2HdWalk || moving == kDkc2HdRun ? kDkc2HdCarryFrontWalk
+                                                              : kDkc2HdCarryFrontIdle;
   if (animation < 0 && moving == kDkc2HdIdle) {
     if (IsFidget(show->animation) && s_tick - show->since < Duration(show->animation))
       animation = show->animation;
@@ -484,6 +500,19 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
       show->fade_from = show->last_frame;
       show->fade_start = s_tick;
     }
+    /* Between a standing pose and the four-legged gaits, the body goes
+     * down or up through its own clip instead of a plain cross-fade. A
+     * change of mind part-way continues from the same point, backwards. */
+    const int turn = IsUpright(show->animation) && IsOnFours(animation) ? 1 :
+                     IsOnFours(show->animation) && IsUpright(animation) ? -1 : 0;
+    const uint32_t turn_length = Duration(kDkc2HdStandToFours);
+    if (turn && turn_length && previous >= 0) {
+      const uint32_t done = show->turn ? s_tick - show->turn_start : turn_length;
+      show->turn_start = done < turn_length ? s_tick - (turn_length - 1 - done) : s_tick;
+      show->turn = turn;
+    } else if (!IsFidget(animation) || !IsUpright(show->animation)) {
+      show->turn = 0;
+    }
     show->animation = animation;
   }
   show->native = input->animation;
@@ -494,13 +523,29 @@ void Dkc2HdSetActor(unsigned who, const Dkc2HdActorInput *input) {
   if (resolved == kDkc2HdJump && animation == kDkc2HdFall)
     elapsed = UINT32_MAX / 2; /* no fall clip: hold the jump's last pose */
   actor->frame = FrameAt(resolved, elapsed);
+  if (show->turn) {
+    const uint32_t length = Duration(kDkc2HdStandToFours);
+    const uint32_t done = s_tick - show->turn_start;
+    if (done < length) {
+      actor->frame = FrameAt(kDkc2HdStandToFours, show->turn > 0 ? done : length - 1 - done);
+      show->since = s_tick; /* the gait or the rest starts when it ends */
+    } else {
+      show->turn = 0;
+      if (show->last_frame) {
+        show->fade_from = show->last_frame;
+        show->fade_start = s_tick;
+      }
+    }
+  }
   actor->fade_frame = NULL;
   actor->fade = 1.0f;
   if (show->fade_from) {
     const uint32_t age = s_tick - show->fade_start;
     if (age < kFadeTicks && show->fade_from != actor->frame) {
       actor->fade_frame = show->fade_from;
-      actor->fade = (float)(age + 1) / (float)(kFadeTicks + 1);
+      /* Eased, so the change starts and ends gently. */
+      const float t = (float)(age + 1) / (float)(kFadeTicks + 1);
+      actor->fade = t * t * (3.0f - 2.0f * t);
     } else {
       show->fade_from = NULL;
     }
@@ -589,8 +634,13 @@ void Dkc2HdObserveMainLine(const Ppu *ppu, unsigned line) {
     for (int x = x0; x < x1; ++x) {
       const int index = x - (int)ppu->extraLeftCur + kPpuExtraLeftRight;
       if (index < 0 || index >= kPpuBufWidth) continue;
-      const unsigned level = ppu->bgBuffers[0].data[index] >> 12;
-      if (level > actor->level) s_mask[row][x] |= (uint8_t)(1u << a);
+      /* Only backgrounds cover the Kong: between sprites the OAM order
+       * decides, not the priority bits, and he is drawn over them (an
+       * animal buddy carries higher bits than its rider). Sprite pixels
+       * use the upper half of the palette. */
+      const PpuZbufType pixel = ppu->bgBuffers[0].data[index];
+      if ((unsigned)(pixel >> 12) > actor->level && (pixel & 0x80) == 0)
+        s_mask[row][x] |= (uint8_t)(1u << a);
     }
   }
 }

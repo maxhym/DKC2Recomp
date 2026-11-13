@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Mandro holds and throws objects in front of him, like Diddy (new clips and
+  slots; the overhead carry stays for Donkey Kong in DKC1Recomp), and goes
+  down to all fours or back up through a short clip. Cross-fades last 9
+  eased ticks. Other sprites no longer cut the HD Kong, which hid him behind
+  the animal he rides.
 - Mandro walks on his knuckles and gallops on all fours (new clips). Pose
   changes cross-fade over 5 ticks, walk and run keep their stride phase, and
   a run no longer flickers back to a walk at the threshold speed.

@@ -26,7 +26,10 @@ Authoring tool (needs ffmpeg, numpy and Pillow); the build itself does not.
   wider than the idle one), "open=N" (remove keyed structures thinner than N
   pixels, such as a pole or bar the character holds), "every=N" (keep one
   clip frame in N, each shown N times longer; halves a long clip's size),
-  "main" (keep only the body's connected shape, dropping detached dust or
+  "greyfront" (on each row, drop grey pixels in front of the body: a prop
+  the character pushes), "green=N" (key harder: fade pixels from a green dominance of N instead of
+  18, for a greyish-green prop), "solid=N" (drop pixels whose opacity is
+  under N of 255, such as a faint translucent prop), "main" (keep only the body's connected shape, dropping detached dust or
   debris), "stride" (start a loop on its widest frame, so that walk and run cycles
   begin at the same point of the stride).
 * --merge keeps the animations, animationIds and tuning of an existing
@@ -54,11 +57,12 @@ def read_video(path):
     return np.frombuffer(raw, np.uint8).reshape(-1, h, w, 3)
 
 
-def key(frame):
+def key(frame, low=18.0):
+    """`low`: how much green may dominate before a pixel starts to fade."""
     rgb = frame.astype(np.float32)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
     dominance = g - np.maximum(r, b)
-    alpha = 1.0 - np.clip((dominance - 18.0) / 50.0, 0.0, 1.0)
+    alpha = 1.0 - np.clip((dominance - low) / (68.0 - low), 0.0, 1.0)
     # Despill: no remaining pixel may be greener than its strongest other channel.
     g2 = np.minimum(g, np.maximum(r, b) + 6.0)
     out = np.stack([r, g2, b, alpha * 255.0], axis=-1)
@@ -75,6 +79,19 @@ def remove_thin(rgba, size):
     out = rgba.copy()
     out[..., 3] = np.minimum(rgba[..., 3], np.asarray(opened))
     out[out[..., 3] == 0] = 0
+    return out
+
+
+def drop_grey_front(rgba):
+    """On each row, drop what lies to the right of the last clearly coloured
+    pixel: a grey prop the character pushes or holds in front of him."""
+    rgb = rgba[..., :3].astype(np.int16)
+    coloured = (rgba[..., 3] > 128) & (rgb.max(axis=-1) - rgb.min(axis=-1) > 40)
+    out = rgba.copy()
+    width = rgba.shape[1]
+    for y in range(rgba.shape[0]):
+        xs = np.nonzero(coloured[y])[0]
+        out[y, (xs[-1] + 2 if len(xs) else 0):width] = 0
     return out
 
 
@@ -266,9 +283,14 @@ def main():
         if "trim" in opts:
             a, b = (int(v) for v in opts["trim"].split("-"))
             raw = raw[a:b]
-        frames = [key(f) for f in raw]
+        frames = [key(f, float(opts.get("green", 18.0))) for f in raw]
         if "open" in opts:
             frames = [remove_thin(f, int(opts["open"])) for f in frames]
+        if "greyfront" in opts:
+            frames = [drop_grey_front(f) for f in frames]
+        if "solid" in opts:
+            for f in frames:
+                f[f[..., 3] < int(opts["solid"])] = 0
         if "main" in opts:
             frames = [keep_main(f) for f in frames]
         ms = [measure(f) for f in frames]

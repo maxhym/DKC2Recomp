@@ -51,8 +51,12 @@ enum {
   kDkc2HdFidget3 = 17,
   kDkc2HdHang = 18,      /* hanging from a horizontal rope */
   kDkc2HdClimbDown = 19,
+  kDkc2HdCarryFrontIdle = 20, /* holding an object in front of the chest */
+  kDkc2HdCarryFrontWalk = 21,
+  kDkc2HdThrowFront = 22,
+  kDkc2HdStandToFours = 23,   /* upright to all fours; played backwards too */
   kDkc2HdBasicAnimCount = 5,
-  kDkc2HdAnimCount = 20,
+  kDkc2HdAnimCount = 24,
 };
 
 /* Presentation styles, applied to each composited frame at run time. */
