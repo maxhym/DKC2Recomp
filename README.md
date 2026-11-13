@@ -174,6 +174,12 @@ memory after each frame and never changes the game. Without the variable it
 does nothing. Telemetry has not yet been validated against a full play
 session; see the roadmap.
 
+The same bridge can record the game's boot sound for the launcher: when
+`DKCOUNTRY_BOOT_AUDIO` names a file, the sound rendered from power-on (logos,
+title screen) is written there as a WAV until the first demo level or a time
+limit. The launcher runs this once, hidden, on the player's own PC; the file
+is never part of this repository. Not yet tried against a real ROM.
+
 ## Supported ROM
 
 The launcher and runtime verify the ROM after removing an optional 512-byte

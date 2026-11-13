@@ -180,7 +180,69 @@ static void TestHostIsInertWithoutVariable(void) {
   CHECK(1);
 }
 
+static uint32_t Le32(const uint8_t *p) {
+  return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+static size_t ReadAll(const char *path, uint8_t *out, size_t capacity) {
+  FILE *f = fopen(path, "rb");
+  if (!f) return 0;
+  const size_t n = fread(out, 1, capacity, f);
+  fclose(f);
+  return n;
+}
+
+static void TestBootAudio(void) {
+  static uint8_t bytes[1 << 20];
+  static int16_t block[2 * 8000];
+  const char *path = "dkc2_boot_audio_test.wav";
+  enum { kRate = 8000, kHalf = kRate / 2 };
+  Dkc2BootAudio b;
+  CHECK(!Dkc2BootAudioOpen(&b, "", 2, kRate, 5));
+  CHECK(!Dkc2BootAudioOpen(&b, path, 3, kRate, 5));
+  Dkc2BootAudioWrite(&b, NULL, 4);         /* closed: harmless */
+
+  /* 20 s limit. A second of silence, then sound: the silence is dropped. */
+  CHECK(Dkc2BootAudioOpen(&b, path, 2, kRate, 20));
+  Dkc2BootAudioWrite(&b, block, kRate);
+  CHECK(b.frames == 0 && !b.heard);
+  for (int i = 0; i < kRate; ++i)
+    block[2 * i] = block[2 * i + 1] = (int16_t)(i < kHalf ? 0 : 1000 + i);
+  Dkc2BootAudioWrite(&b, block, kRate);
+  CHECK(b.heard && b.frames == kHalf);
+  /* Until the capture ends the header says "no data yet". */
+  fflush(b.file);
+  size_t n = ReadAll(path, bytes, sizeof bytes);
+  CHECK(n == 44 + kHalf * 4 && memcmp(bytes, "RIFF", 4) == 0 && Le32(bytes + 40) == 0);
+  CHECK((int16_t)(bytes[44] | bytes[45] << 8) == 1000 + kHalf);
+
+  /* Gameplay before ten seconds of sound does not cut the capture short;
+   * past ten seconds it ends it. */
+  Dkc2BootAudioGameplay(&b);
+  for (int i = 0; i < 9; ++i) Dkc2BootAudioWrite(&b, block, kRate);
+  CHECK(!Dkc2BootAudioDone(&b) && b.frames == 9u * kRate + kHalf);
+  Dkc2BootAudioWrite(&b, block, kRate);
+  CHECK(Dkc2BootAudioDone(&b) && b.file == NULL);
+  const uint32_t data = (10u * kRate + kHalf) * 4u;
+  n = ReadAll(path, bytes, sizeof bytes);
+  CHECK(n == 44 + data);
+  CHECK(Le32(bytes + 40) == data && Le32(bytes + 4) == data + 36);
+  CHECK(Le32(bytes + 24) == kRate && bytes[22] == 2 && bytes[34] == 16);
+  Dkc2BootAudioWrite(&b, block, kRate);    /* finished: ignored */
+
+  /* Without gameplay the limit ends it, exactly. */
+  CHECK(Dkc2BootAudioOpen(&b, path, 1, kRate, 1.5));
+  for (int i = 0; i < kRate; ++i) block[i] = 2000;
+  Dkc2BootAudioWrite(&b, block, kRate);
+  Dkc2BootAudioWrite(&b, block, kRate);
+  CHECK(Dkc2BootAudioDone(&b));
+  n = ReadAll(path, bytes, sizeof bytes);
+  CHECK(n == 44 + 3u * kHalf * 2 && Le32(bytes + 40) == 3u * kHalf * 2 && bytes[22] == 1);
+  remove(path);
+}
+
 int main(void) {
+  TestBootAudio();
   TestSnapshotReadsDocumentedAddresses();
   TestBcd();
   TestGameplayEvents();
